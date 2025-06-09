@@ -7,8 +7,6 @@ class UserHistoryMenuScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // AppBar jest standardowy. Flutter sam doda strzałkę "wstecz",
-      // gdy ten ekran zostanie otwarty przez context.push().
       appBar: AppBar(
         title: const Text('Moja historia'),
         backgroundColor: Theme.of(context).colorScheme.primary,
