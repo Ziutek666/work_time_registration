@@ -169,13 +169,19 @@ class _MyProjectsScreenState extends State<MyProjectsScreen> {
         backgroundColor: colorScheme.primary,
         foregroundColor: colorScheme.onPrimary,
         elevation: 4.0,
-        leading: context.canPop()
-            ? IconButton(
+        // Przycisk powrotu - dostosuj nawigację, jeśli ten ekran jest częścią głębszego stosu
+        leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           tooltip: "Wróć",
-          onPressed: () => context.pop(),
-        )
-            : null,
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              // Domyślnie wróć do ekranu głównego, jeśli nie ma dokąd wrócić
+              context.go('/');
+            }
+          },
+        ),
         title: Text(
           'Moje projekty',
           style: textTheme.titleLarge?.copyWith(

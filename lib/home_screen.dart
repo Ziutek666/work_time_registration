@@ -426,14 +426,14 @@ class _HomeScreenState extends State<HomeScreen>
             title: const Text('Konto użytkownika'),
             onTap: () {
               Navigator.pop(context);
-              context.push('/edit-user');
+              context.go('/edit-user');
             }),
         ListTile(
             leading: const Icon(Icons.calendar_month_outlined),
             title: const Text('Historia'),
             onTap: () {
               Navigator.pop(context);
-              context.push('/user-history-menu');
+              context.go('/user-history-menu');
             }),
         const Divider(),
         ListTile(
@@ -441,14 +441,14 @@ class _HomeScreenState extends State<HomeScreen>
             title: const Text('Moje projekty (Admin)'),
             onTap: () {
               Navigator.pop(context);
-              context.push('/my-projects');
+              context.go('/my-projects');
             }),
             ListTile(
                 leading: const Icon(Icons.calendar_month_outlined),
                 title: const Text('Historia (Admin)'),
                 onTap: () {
                   Navigator.pop(context);
-                  context.push('/admin-history-menu');
+                  context.go('/admin-history-menu');
                 }),
         const Divider(),
         ListTile(
@@ -456,7 +456,7 @@ class _HomeScreenState extends State<HomeScreen>
             title: const Text('O aplikacji'),
             onTap: () {
               Navigator.pop(context);
-              context.push('/about');
+              context.go('/about');
             }),
         ListTile(
             leading: Icon(Icons.logout, color: colorScheme.error),
