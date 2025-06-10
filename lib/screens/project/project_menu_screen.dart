@@ -116,6 +116,16 @@ class _ProjectMenuScreenState extends State<ProjectMenuScreen> {
         const SizedBox(height: 12),
         _buildMenuOption(
           theme: theme,
+          icon: Icons.qr_code_2, // Bardziej pasująca ikona
+          title: 'Kody QR',
+          onTap: () => context.push('/codes-qr', extra: {
+            'project': widget.project,
+            'license': widget.license,
+          }),
+        ),
+        const SizedBox(height: 12),
+        _buildMenuOption(
+          theme: theme,
           icon: Icons.history_edu_outlined, // Bardziej pasująca ikona
           title: 'Historia zdarzeń (Logi)', // Zmieniona nazwa dla spójności
           onTap: () => context.push('/adminLogs', extra: widget.project),

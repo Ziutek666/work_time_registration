@@ -178,7 +178,7 @@ class _MyProjectsScreenState extends State<MyProjectsScreen> {
               context.pop();
             } else {
               // Domyślnie wróć do ekranu głównego, jeśli nie ma dokąd wrócić
-              context.go('/');
+              context.go('/administration-menu');
             }
           },
         ),

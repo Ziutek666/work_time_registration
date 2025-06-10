@@ -14,7 +14,6 @@ import '../../models/project.dart';
 import '../../models/area.dart';
 import '../../models/user_app.dart';
 import '../../models/information.dart';
-import '../../services/project_member_service.dart';
 import '../../services/work_entry_service.dart';
 import '../../services/project_service.dart';
 import '../../services/area_service.dart';
@@ -33,13 +32,10 @@ class WorkSession {
     required this.allEventsInSession,
   });
 
-  // Getter określający, czy sesja została zakończona
   bool get isFinished => endEntry != null;
 
-  // Getter do obliczania czasu trwania sesji
   Duration get duration {
     if (!isFinished) {
-      // Jeśli sesja jest w toku, licz czas do teraz
       return DateTime.now().difference(startEntry.eventActionTimestamp.toDate());
     }
     return endEntry!.eventActionTimestamp
@@ -47,35 +43,31 @@ class WorkSession {
         .difference(startEntry.eventActionTimestamp.toDate());
   }
 
-  // Getter zwracający nazwę typu pracy
   String get workTypeName => startEntry.workTypeName;
 }
 
-
-class AdminInfoHistoryScreen extends StatefulWidget {
-  const AdminInfoHistoryScreen({super.key});
+class UserInfoHistoryScreen extends StatefulWidget {
+  const UserInfoHistoryScreen({super.key});
 
   @override
-  State<AdminInfoHistoryScreen> createState() => _AdminInfoHistoryScreenState();
+  State<UserInfoHistoryScreen> createState() => _UserInfoHistoryScreenState();
 }
 
-class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
+class _UserInfoHistoryScreenState extends State<UserInfoHistoryScreen> {
   // Stan UI
   bool _isLoading = true;
   String? _errorMessage;
   bool _isFilterPanelExpanded = true;
   UserApp? _currentUser;
 
-  // NOWA STRUKTURA DANYCH: Przechowujemy pogrupowane SESJE pracy
-  Map<String, Map<String, Map<String, List<WorkSession>>>>
-  _groupedSessionsByEmployee = {};
+  // UPROSZCZONA STRUKTURA DANYCH: Przechowujemy sesje tylko dla bieżącego użytkownika
+  Map<String, Map<String, List<WorkSession>>> _groupedSessionsForCurrentUser = {};
   List<WorkEntry> _allWorkEntries = [];
 
   // Filtry
   DateTimeRange? _selectedDateRange;
   Project? _selectedFilterProject;
   Area? _selectedFilterArea;
-  UserApp? _selectedUser;
 
   // Stan dla podsumowania czasów
   Duration _totalMainWorkDuration = Duration.zero;
@@ -83,10 +75,8 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
   Duration _totalSubtaskDuration = Duration.zero;
 
   // Mapy nazw i dostępne obiekty do filtrów
-  List<UserApp> _availableUsers = [];
   List<Project> _availableProjectsForFilter = [];
   List<Area> _availableAreasForFilter = [];
-  Map<String, String> _userNamesMap = {};
   Map<String, String> _projectNamesMap = {};
   Map<String, String> _areaNamesMap = {};
 
@@ -105,7 +95,11 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
       _errorMessage = null;
     });
     try {
-      await _loadAllUsers();
+      _currentUser = await userService.getCurrentUser();
+      if (_currentUser == null) {
+        throw Exception("Brak zalogowanego użytkownika.");
+      }
+
       final now = DateTime.now();
       _selectedDateRange =
           DateTimeRange(start: now.subtract(const Duration(days: 7)), end: now);
@@ -119,52 +113,21 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     }
   }
 
-  Future<void> _loadAllUsers() async {
-    _currentUser = await userService.getCurrentUser();
-    if (_currentUser == null) {
-      throw Exception("Brak uwierzytelnionego administratora.");
-    }
-    final allProjects = await projectService.getProjectsByOwner(_currentUser!.uid!);
-    if (allProjects.isEmpty) {
-      if (mounted) setState(() => _availableUsers = []);
-      return;
-    }
-    final allMembers = await projectMemberService
-        .getMembersForAllProjects(allProjects.map((p) => p.projectId).toList());
-    final uniqueUserIds = allMembers.map((m) => m.userId).toSet().toList();
-    if (uniqueUserIds.isEmpty) {
-      if (mounted) setState(() => _availableUsers = []);
-      return;
-    }
-    _availableUsers = await userService.getUsersByIds(uniqueUserIds);
-    _availableUsers.sort((a, b) => (a.displayName ?? '')
-        .toLowerCase()
-        .compareTo((b.displayName ?? '').toLowerCase()));
-    _userNamesMap = {
-      for (var user in _availableUsers)
-        user.uid!: user.displayName ?? 'Użytkownik bez nazwy'
-    };
-  }
-
   Future<void> _fetchAndProcessEntries() async {
-    if (_selectedDateRange == null || _availableUsers.isEmpty) return;
+    if (_selectedDateRange == null || _currentUser == null) return;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
     try {
-      final futures = _availableUsers
-          .map((user) => workEntryService.getWorkEntriesForUserBetweenDates(
-        user.uid!,
+      _allWorkEntries = await workEntryService.getWorkEntriesForUserBetweenDates(
+        _currentUser!.uid!,
         _selectedDateRange!.start,
-        DateTime(_selectedDateRange!.end.year,
-            _selectedDateRange!.end.month, _selectedDateRange!.end.day + 1),
-      ))
-          .toList();
-      final results = await Future.wait(futures);
-      _allWorkEntries = results.expand((list) => list).toList();
+        DateTime(_selectedDateRange!.end.year, _selectedDateRange!.end.month,
+            _selectedDateRange!.end.day + 1),
+      );
       await _ensureProjectAndAreaNamesAvailable(_allWorkEntries);
-      _applyFiltersAndGroup(); // Ta funkcja jest teraz przebudowana
+      _applyFiltersAndGroup();
     } catch (e) {
       if (mounted) {
         setState(
@@ -175,13 +138,9 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     }
   }
 
-  // CAŁKOWICIE PRZEBUDOWANA METODA
   void _applyFiltersAndGroup() {
     List<WorkEntry> tempFiltered = List.from(_allWorkEntries);
-    if (_selectedUser != null) {
-      tempFiltered =
-          tempFiltered.where((e) => e.userId == _selectedUser!.uid).toList();
-    }
+
     if (_selectedFilterProject != null) {
       tempFiltered = tempFiltered
           .where((e) => e.projectId == _selectedFilterProject!.projectId)
@@ -195,32 +154,22 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
 
     _calculateSummaryDurations(tempFiltered);
 
-    // Sortujemy wszystkie wpisy chronologicznie - to kluczowe dla parowania
     tempFiltered.sort((a, b) => a.eventActionTimestamp.compareTo(b.eventActionTimestamp));
 
-    _groupedSessionsByEmployee.clear();
-    final groupedByEmployee = groupBy(tempFiltered, (entry) => entry.userId);
+    _groupedSessionsForCurrentUser.clear();
+    final groupedByProject = groupBy(tempFiltered, (entry) => entry.projectId);
 
-    groupedByEmployee.forEach((userId, entriesForEmployee) {
-      final groupedByProject =
-      groupBy(entriesForEmployee, (entry) => entry.projectId);
-      final projectMap = <String, Map<String, List<WorkSession>>>{};
+    groupedByProject.forEach((projectId, entriesInProject) {
+      final groupedByArea = groupBy(entriesInProject, (entry) => entry.areaId);
+      final areaMap = <String, List<WorkSession>>{};
 
-      groupedByProject.forEach((projectId, entriesInProject) {
-        final groupedByArea = groupBy(entriesInProject, (entry) => entry.areaId);
-        final areaMap = <String, List<WorkSession>>{};
-
-        groupedByArea.forEach((areaId, entriesInArea) {
-          // Nowa funkcja parująca zdarzenia w sesje
-          areaMap[areaId] = _pairEntriesIntoSessions(entriesInArea);
-        });
-        projectMap[projectId] = areaMap;
+      groupedByArea.forEach((areaId, entriesInArea) {
+        areaMap[areaId] = _pairEntriesIntoSessions(entriesInArea);
       });
-      _groupedSessionsByEmployee[userId] = projectMap;
+      _groupedSessionsForCurrentUser[projectId] = areaMap;
     });
 
-    final projectIdsInView =
-    _groupedSessionsByEmployee.values.expand((e) => e.keys).toSet();
+    final projectIdsInView = _groupedSessionsForCurrentUser.keys.toSet();
     if (projectIdsInView.isNotEmpty) {
       _loadProjectsForFilter(projectIdsInView.toList());
     }
@@ -228,7 +177,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     if (mounted) setState(() {});
   }
 
-  // NOWA METODA POMOCNICZA DO PAROWANIA WPISÓW W SESJE
   List<WorkSession> _pairEntriesIntoSessions(List<WorkEntry> entries) {
     final List<WorkSession> sessions = [];
     WorkEntry? activeMainTaskStart;
@@ -238,30 +186,24 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
       final isMainTask = !entry.workTypeIsBreak && !entry.workTypeIsSubTask;
 
       if (activeMainTaskStart == null) {
-        // Szukamy rozpoczęcia nowego zadania głównego
         if (entry.isStart && isMainTask) {
           activeMainTaskStart = entry;
           eventsForCurrentSession.add(entry);
         }
       } else {
-        // Mamy aktywną sesję, dodajemy do niej wszystkie zdarzenia
         eventsForCurrentSession.add(entry);
-
-        // Sprawdzamy, czy obecne zdarzenie kończy aktywną sesję
         if (!entry.isStart && isMainTask && entry.workTypeId == activeMainTaskStart.workTypeId) {
           sessions.add(WorkSession(
             startEntry: activeMainTaskStart,
             endEntry: entry,
             allEventsInSession: List.from(eventsForCurrentSession),
           ));
-          // Resetujemy stan do szukania nowej sesji
           activeMainTaskStart = null;
           eventsForCurrentSession.clear();
         }
       }
     }
 
-    // Jeśli po pętli została niezakończona sesja, też ją dodajemy
     if (activeMainTaskStart != null) {
       sessions.add(WorkSession(
         startEntry: activeMainTaskStart,
@@ -269,7 +211,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
       ));
     }
 
-    // Sortujemy sesje od najnowszej do najstarszej dla lepszego wyglądu
     sessions.sort((a, b) => b.startEntry.eventActionTimestamp.compareTo(a.startEntry.eventActionTimestamp));
     return sessions;
   }
@@ -355,9 +296,8 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
 
   Future<void> _loadProjectsForFilter(List<String> projectIds) async {
     try {
-      _availableProjectsForFilter =
-      await projectService.fetchProjectsByIds(projectIds);
-      _availableProjectsForFilter = _availableProjectsForFilter.toSet().toList(); // Usuwanie duplikatów
+      _availableProjectsForFilter = await projectService.fetchProjectsByIds(projectIds);
+      _availableProjectsForFilter = _availableProjectsForFilter.toSet().toList();
       _availableProjectsForFilter
           .sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     } catch (e) {
@@ -371,20 +311,14 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
       final allAreas = await areaService.getAreasByProject(projectId);
       if (mounted) {
         setState(() {
-          _availableAreasForFilter = allAreas.toSet().toList(); // Usuwanie duplikatów
-          _availableAreasForFilter
-              .sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+          _availableAreasForFilter = allAreas.toSet().toList();
+          _availableAreasForFilter.sort((a,b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
         });
       }
     } catch (e) {
       debugPrint("Błąd ładowania obszarów do filtra: $e");
       if (mounted) setState(() => _availableAreasForFilter = []);
     }
-  }
-
-  void _onUserChanged(UserApp? user) {
-    setState(() => _selectedUser = user);
-    _applyFiltersAndGroup();
   }
 
   void _onProjectFilterChanged(Project? project) {
@@ -433,7 +367,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
       _selectedFilterProject = null;
       _selectedFilterArea = null;
       _availableAreasForFilter = [];
-      _selectedUser = null;
     });
     _fetchAndProcessEntries();
   }
@@ -462,14 +395,14 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     final ThemeData theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Szczegółowa Historia Akcji'),
+        title: const Text('Moja Historia Akcji'),
         backgroundColor: theme.colorScheme.primary,
         foregroundColor: theme.colorScheme.onPrimary,
         actions: [
           IconButton(
             icon: const Icon(Icons.picture_as_pdf),
             tooltip: 'Generuj Raport PDF',
-            onPressed: _isLoading || _groupedSessionsByEmployee.isEmpty
+            onPressed: _isLoading || _groupedSessionsForCurrentUser.isEmpty
                 ? null
                 : _generatePdf,
           )
@@ -486,9 +419,8 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
                 child: Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Text(_errorMessage!,
-                        style:
-                        TextStyle(color: theme.colorScheme.error))))
-                : _buildHistoryList(theme), // Zaktualizowana lista
+                        style: TextStyle(color: theme.colorScheme.error))))
+                : _buildHistoryList(theme),
           ),
         ],
       ),
@@ -496,14 +428,13 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
   }
 
   Widget _buildCollapsibleFilterPanel(ThemeData theme) {
-    // Ta metoda pozostaje bez zmian
     return Card(
       margin: const EdgeInsets.fromLTRB(8, 8, 8, 4),
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       clipBehavior: Clip.antiAlias,
       child: ExpansionTile(
-        key: const PageStorageKey<String>('filter_panel_info_history'),
+        key: const PageStorageKey<String>('filter_panel_user_history'),
         initiallyExpanded: _isFilterPanelExpanded,
         onExpansionChanged: (isExpanded) =>
             setState(() => _isFilterPanelExpanded = isExpanded),
@@ -530,9 +461,8 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
   }
 
   Widget _buildSummaryCard(ThemeData theme) {
-    // Ta metoda pozostaje bez zmian
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Podsumowanie Czasu (${_selectedUser?.displayName ?? "Wszyscy"})',
+      Text('Twoje Podsumowanie Czasu',
           style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.bold, color: theme.colorScheme.primary)),
       const SizedBox(height: 12),
@@ -551,7 +481,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
   Widget _buildSummaryRow(
       ThemeData theme, IconData icon, String label, String value,
       {Color? color}) {
-    // Ta metoda pozostaje bez zmian
     return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4.0),
         child: Row(children: [
@@ -568,29 +497,9 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
   }
 
   Widget _buildFilterSection(ThemeData theme) {
-    // Ta metoda pozostaje bez zmian
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        DropdownButtonFormField<UserApp>(
-          decoration: const InputDecoration(
-              labelText: 'Pracownik',
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 10)),
-          value: _selectedUser,
-          hint: const Text('Wszyscy pracownicy'),
-          isExpanded: true,
-          items: [
-            const DropdownMenuItem<UserApp>(
-                value: null, child: Text('Wszyscy pracownicy')),
-            ..._availableUsers.map((u) => DropdownMenuItem<UserApp>(
-                value: u,
-                child: Text(u.displayName ?? 'Użytkownik bez nazwy',
-                    overflow: TextOverflow.ellipsis)))
-          ],
-          onChanged: _onUserChanged,
-        ),
-        const SizedBox(height: 12),
         _buildDatePresetButtons(theme),
         OutlinedButton.icon(
           icon: const Icon(Icons.date_range),
@@ -658,7 +567,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
   }
 
   Widget _buildDatePresetButtons(ThemeData theme) {
-    // Ta metoda pozostaje bez zmian
     return Padding(
       padding: const EdgeInsets.only(bottom: 12.0),
       child: Wrap(
@@ -680,9 +588,8 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     );
   }
 
-  // ZAKTUALIZOWANA METODA do budowania listy, teraz na podstawie sesji
   Widget _buildHistoryList(ThemeData theme) {
-    if (_groupedSessionsByEmployee.isEmpty && !_isLoading) {
+    if (_groupedSessionsForCurrentUser.isEmpty && !_isLoading) {
       return const Center(
           child: Padding(
             padding: EdgeInsets.all(16.0),
@@ -691,23 +598,22 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
           ));
     }
 
-    final userIds = _groupedSessionsByEmployee.keys.toList();
-    userIds.sort((a, b) => (_userNamesMap[a] ?? a)
+    final projectIds = _groupedSessionsForCurrentUser.keys.toList();
+    projectIds.sort((a, b) => (_projectNamesMap[a] ?? a)
         .toLowerCase()
-        .compareTo((_userNamesMap[b] ?? b).toLowerCase()));
+        .compareTo((_projectNamesMap[b] ?? b).toLowerCase()));
 
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-      itemCount: userIds.length,
-      itemBuilder: (context, userIndex) {
-        final userId = userIds[userIndex];
-        final userName = _userNamesMap[userId] ?? 'Pracownik bez nazwy';
-        final projectsForUser = _groupedSessionsByEmployee[userId]!;
-
-        final projectIds = projectsForUser.keys.toList();
-        projectIds.sort((a, b) => (_projectNamesMap[a] ?? a)
+      itemCount: projectIds.length,
+      itemBuilder: (context, projectIndex) {
+        final projectId = projectIds[projectIndex];
+        final projectName = _projectNamesMap[projectId] ?? 'Projekt bez nazwy';
+        final areasInProject = _groupedSessionsForCurrentUser[projectId]!;
+        final areaIds = areasInProject.keys.toList();
+        areaIds.sort((a, b) => (_areaNamesMap[a] ?? a)
             .toLowerCase()
-            .compareTo((_projectNamesMap[b] ?? b).toLowerCase()));
+            .compareTo((_areaNamesMap[b] ?? b).toLowerCase()));
 
         return Card(
           margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
@@ -715,36 +621,15 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
           shape:
           RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           child: ExpansionTile(
-            key: PageStorageKey<String>(userId),
-            leading: Icon(Icons.person_outline, color: theme.colorScheme.primary),
-            title: Text(userName,
+            key: PageStorageKey<String>(projectId),
+            leading: Icon(Icons.folder_copy_outlined, color: theme.colorScheme.primary),
+            title: Text(projectName,
                 style: theme.textTheme.titleLarge
                     ?.copyWith(fontWeight: FontWeight.bold)),
-            children: projectIds.map((projectId) {
-              final projectName =
-                  _projectNamesMap[projectId] ?? 'Projekt bez nazwy';
-              final areasInProject = projectsForUser[projectId]!;
-              final areaIds = areasInProject.keys.toList();
-              areaIds.sort((a, b) => (_areaNamesMap[a] ?? a)
-                  .toLowerCase()
-                  .compareTo((_areaNamesMap[b] ?? b).toLowerCase()));
-
-              return ExpansionTile(
-                key: PageStorageKey<String>('$userId-$projectId'),
-                leading: Padding(
-                  padding: const EdgeInsets.only(left: 16.0),
-                  child: Icon(Icons.folder_copy_outlined,
-                      color: theme.colorScheme.secondary),
-                ),
-                title: Text(projectName,
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w600)),
-                children: areaIds.map((areaId) {
-                  final areaName = _areaNamesMap[areaId] ?? 'Obszar bez nazwy';
-                  final sessionsInArea = areasInProject[areaId]!;
-                  return _buildAreaSessionsList(areaName, sessionsInArea, theme);
-                }).toList(),
-              );
+            children: areaIds.map((areaId) {
+              final areaName = _areaNamesMap[areaId] ?? 'Obszar bez nazwy';
+              final sessionsInArea = areasInProject[areaId]!;
+              return _buildAreaSessionsList(areaName, sessionsInArea, theme);
             }).toList(),
           ),
         );
@@ -752,7 +637,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     );
   }
 
-  // NOWA METODA, zastępuje _buildAreaActionsCard
   Widget _buildAreaSessionsList(String areaName, List<WorkSession> sessions, ThemeData theme) {
     if (sessions.isEmpty) return const SizedBox.shrink();
 
@@ -771,7 +655,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     );
   }
 
-  // NOWY WIDGET DO BUDOWANIA KARTY SESJI
   Widget _buildSessionCard(WorkSession session, ThemeData theme) {
     return Card(
       elevation: 2,
@@ -825,7 +708,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Oś czasu zdarzeń:", style: theme.textTheme.labelLarge),
                 const SizedBox(height: 8),
                 ...session.allEventsInSession.map((event) => _buildWorkEntryRowWithInfo(event, theme)),
               ],
@@ -836,7 +718,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     );
   }
 
-  // Ta metoda pozostaje bez zmian, jest teraz wywoływana wewnątrz _buildSessionCard
   Widget _buildWorkEntryRowWithInfo(WorkEntry entry, ThemeData theme) {
     final infos = entry.relatedInformations ?? [];
 
@@ -905,7 +786,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     );
   }
 
-  // Ta metoda pozostaje bez zmian
   Widget _buildInfoList(List<Information> infos, ThemeData theme) {
     if (infos.isEmpty) {
       return const SizedBox.shrink();
@@ -952,7 +832,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     );
   }
 
-  // Ta metoda pozostaje bez zmian
   String _formatUpdateTime(Timestamp? timestamp) {
     if (timestamp == null) {
       return 'Brak daty aktualizacji';
@@ -961,7 +840,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
   }
 
   // --- Logika generowania PDF ---
-  // Zaktualizowana, aby odzwierciedlać nową strukturę sesji
 
   Future<void> _generatePdf() async {
     // Zmieniamy ścieżki na nowe pliki czcionek Roboto
@@ -969,13 +847,14 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     await rootBundle.load("assets/fonts/Roboto-Regular.ttf");
     final boldFontData =
     await rootBundle.load("assets/fonts/Roboto-Bold.ttf");
+
     final ttfRegular = pw.Font.ttf(regularFontData.buffer.asByteData());
     final ttfBold = pw.Font.ttf(boldFontData.buffer.asByteData());
 
     final pdfTheme = pw.ThemeData.withFont(base: ttfRegular, bold: ttfBold);
     final pdf = pw.Document(theme: pdfTheme);
 
-    final reportName = _selectedUser?.displayName ?? 'Wszyscy Pracownicy';
+    final reportName = _currentUser?.displayName ?? 'Mój Raport';
     final dateRange = _selectedDateRange != null
         ? '${_dateFormat.format(_selectedDateRange!.start)} - ${_dateFormat.format(_selectedDateRange!.end)}'
         : 'Nie wybrano zakresu';
@@ -995,55 +874,41 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
           content.add(pw.Header(level: 1, text: 'Szczegółowy Rejestr Sesji Pracy'));
           content.add(pw.Divider());
 
-          final sortedUserIds = _groupedSessionsByEmployee.keys.toList()
-            ..sort((a, b) => (_userNamesMap[a] ?? a)
+          final sortedProjectIds = _groupedSessionsForCurrentUser.keys.toList()
+            ..sort((a, b) => (_projectNamesMap[a] ?? a)
                 .toLowerCase()
-                .compareTo((_userNamesMap[b] ?? b).toLowerCase()));
+                .compareTo((_projectNamesMap[b] ?? b).toLowerCase()));
 
-          for (var userId in sortedUserIds) {
-            final projects = _groupedSessionsByEmployee[userId]!;
-            final userName = _userNamesMap[userId] ?? 'ID: $userId';
+          for (var projectId in sortedProjectIds) {
+            final areas = _groupedSessionsForCurrentUser[projectId]!;
+            final projectName = _projectNamesMap[projectId] ?? 'ID: $projectId';
             content.add(pw.Header(
               level: 2,
-              text: 'Pracownik: $userName',
+              text: 'Projekt: $projectName',
               textStyle: const pw.TextStyle(color: PdfColors.blueGrey800),
             ));
 
-            final sortedProjectIds = projects.keys.toList()
-              ..sort((a, b) => (_projectNamesMap[a] ?? a)
+            final sortedAreaIds = areas.keys.toList()
+              ..sort((a, b) => (_areaNamesMap[a] ?? a)
                   .toLowerCase()
-                  .compareTo((_projectNamesMap[b] ?? b).toLowerCase()));
+                  .compareTo((_areaNamesMap[b] ?? b).toLowerCase()));
 
-            for (var projectId in sortedProjectIds) {
-              final areas = projects[projectId]!;
-              final projectName = _projectNamesMap[projectId] ?? 'ID: $projectId';
+            for (var areaId in sortedAreaIds) {
+              final sessions = areas[areaId]!;
+              if (sessions.isEmpty) continue;
+
+              final areaName = _areaNamesMap[areaId] ?? 'ID: $areaId';
               content.add(pw.Header(
                 level: 3,
-                text: 'Projekt: $projectName',
+                text: 'Obszar: $areaName',
+                textStyle: pw.TextStyle(fontStyle: pw.FontStyle.italic),
               ));
 
-              final sortedAreaIds = areas.keys.toList()
-                ..sort((a, b) => (_areaNamesMap[a] ?? a)
-                    .toLowerCase()
-                    .compareTo((_areaNamesMap[b] ?? b).toLowerCase()));
-
-              for (var areaId in sortedAreaIds) {
-                final sessions = areas[areaId]!;
-                if (sessions.isEmpty) continue;
-
-                final areaName = _areaNamesMap[areaId] ?? 'ID: $areaId';
-                content.add(pw.Header(
-                  level: 4,
-                  text: 'Obszar: $areaName',
-                  textStyle: pw.TextStyle(fontStyle: pw.FontStyle.italic),
-                ));
-
-                content.add(pw.Column(
-                    children: sessions
-                        .map((session) => _buildPdfSessionBlock(session))
-                        .toList()));
-                content.add(pw.SizedBox(height: 10));
-              }
+              content.add(pw.Column(
+                  children: sessions
+                      .map((session) => _buildPdfSessionBlock(session))
+                      .toList()));
+              content.add(pw.SizedBox(height: 10));
             }
             content.add(pw.Divider(height: 20));
           }
@@ -1055,26 +920,82 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
 
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => pdf.save(),
-      name: 'raport_akcji_${reportName.replaceAll(' ', '_')}.pdf',
+      name: 'moj_raport_akcji_${reportName.replaceAll(' ', '_')}.pdf',
     );
   }
 
   pw.Widget _buildPdfHeader(String reportName, String dateRange) {
-    // bez zmian
-    return pw.Container(/* ... */);
+    return pw.Container(
+      alignment: pw.Alignment.centerLeft,
+      padding: const pw.EdgeInsets.only(bottom: 10),
+      decoration: const pw.BoxDecoration(
+          border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey, width: 1.5))),
+      child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+        pw.Text('Raport Akcji i Informacji',
+            style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 22)),
+        pw.SizedBox(height: 5),
+        pw.Text('Dla: $reportName'),
+        pw.Text('Okres: $dateRange'),
+      ]),
+    );
   }
 
   pw.Widget _buildPdfFooter(pw.Context context) {
-    // bez zmian
-    return pw.Container(/* ... */);
+    return pw.Container(
+      alignment: pw.Alignment.centerRight,
+      margin: const pw.EdgeInsets.only(top: 10),
+      child: pw.Text('Strona ${context.pageNumber} z ${context.pagesCount}',
+          style: const pw.TextStyle(color: PdfColors.grey, fontSize: 8)),
+    );
   }
 
   pw.Widget _buildPdfSummaryTable() {
-    // bez zmian
-    return pw.Table(/* ... */);
+    return pw.Table(
+      border: pw.TableBorder.all(),
+      columnWidths: {
+        0: const pw.FlexColumnWidth(2),
+        1: const pw.FlexColumnWidth(1)
+      },
+      children: [
+        pw.TableRow(
+            decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+            children: [
+              pw.Padding(
+                  padding: const pw.EdgeInsets.all(5),
+                  child: pw.Text('Typ Czasu',
+                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+              pw.Padding(
+                  padding: const pw.EdgeInsets.all(5),
+                  child: pw.Text('Suma',
+                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+            ]),
+        pw.TableRow(children: [
+          pw.Padding(
+              padding: const pw.EdgeInsets.all(5),
+              child: pw.Text('Praca główna')),
+          pw.Padding(
+              padding: const pw.EdgeInsets.all(5),
+              child: pw.Text(_formatDurationHHMMSS(_totalMainWorkDuration))),
+        ]),
+        pw.TableRow(children: [
+          pw.Padding(
+              padding: const pw.EdgeInsets.all(5),
+              child: pw.Text('Podzadania')),
+          pw.Padding(
+              padding: const pw.EdgeInsets.all(5),
+              child: pw.Text(_formatDurationHHMMSS(_totalSubtaskDuration))),
+        ]),
+        pw.TableRow(children: [
+          pw.Padding(
+              padding: const pw.EdgeInsets.all(5), child: pw.Text('Przerwy')),
+          pw.Padding(
+              padding: const pw.EdgeInsets.all(5),
+              child: pw.Text(_formatDurationHHMMSS(_totalBreakDuration))),
+        ]),
+      ],
+    );
   }
 
-  // NOWA METODA DO RENDEROWANIA BLOKU SESJI W PDF
   pw.Widget _buildPdfSessionBlock(WorkSession session) {
     return pw.Container(
         padding: const pw.EdgeInsets.all(8),
@@ -1109,7 +1030,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     );
   }
 
-  // NOWA METODA POMOCNICZA DLA PDF, renderuje pojedynczy wiersz zdarzenia
   pw.Widget _buildPdfWorkEntryRow(WorkEntry entry) {
     String actionText = entry.isStart ? "START" : "STOP";
     if (entry.workTypeIsBreak) actionText += " Przerwa";

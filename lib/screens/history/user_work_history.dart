@@ -82,9 +82,11 @@ class _UserWorkHistoryScreenState extends State<UserWorkHistoryScreen> {
   }
 
   Future<void> _generatePdf() async {
-    // ZMIANA: Ładowanie czcionek z zasobów (assets)
-    final regularFontData = await rootBundle.load("assets/fonts/Lato-Regular.ttf");
-    final boldFontData = await rootBundle.load("assets/fonts/Lato-Bold.ttf");
+    // Zmieniamy ścieżki na nowe pliki czcionek Roboto
+    final regularFontData =
+    await rootBundle.load("assets/fonts/Roboto-Regular.ttf");
+    final boldFontData =
+    await rootBundle.load("assets/fonts/Roboto-Bold.ttf");
     final ttfRegular = pw.Font.ttf(regularFontData.buffer.asByteData());
     final ttfBold = pw.Font.ttf(boldFontData.buffer.asByteData());
 

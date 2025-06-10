@@ -3,6 +3,7 @@
 // dla przejrzystości i zgodnie z prośbą o modyfikację modelu.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart'; // Dodano dla ThemeData, ColorScheme, TextTheme w AreasScreen
 import 'package:go_router/go_router.dart';
 import 'package:work_time_registration/models/project.dart';
@@ -21,7 +22,7 @@ import 'license.dart'; // Dodano dla GoRouter w AreasScreen
 /// Model reprezentujący obszar (area) w systemie.
 /// Obszar należy do konkretnego projektu i właściciela.
 /// Może mieć przypisanych użytkowników, status aktywności oraz powiązane typy pracy.
-class Area {
+class Area extends Equatable {
   final String projectId; // ID projektu, do którego należy obszar
   final String ownerId; // ID właściciela obszaru
   final String areaId; // ID obszaru (klucz dokumentu)
@@ -42,6 +43,8 @@ class Area {
     List<String>? workTypesIds, // <<<--- DODANO DO KONSTRUKTORA
   }) : this.workTypesIds = workTypesIds ?? const []; // Domyślnie pusta lista
 
+  @override
+  List<Object?> get props => [areaId];
   /// Tworzy kopię obiektu Area z opcjonalnymi zmianami pól.
   Area copyWith({
     String? projectId,

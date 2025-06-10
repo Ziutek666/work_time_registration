@@ -225,9 +225,12 @@ class _SelectWorkTypeScreenState extends State<SelectWorkTypeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context); // Pobranie theme
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colorScheme = theme.colorScheme;
     return Scaffold(
       appBar: AppBar(
+        backgroundColor: colorScheme.primary,
+        foregroundColor: colorScheme.onPrimary,
         title: Text('Wybierz Typ Pracy${widget.filterType == "subtask_or_break" ? " (Akcję)" : (widget.filterType == "main" ? " (Główne)" : "")}'),
         leading: IconButton(
           icon: const Icon(Icons.close),

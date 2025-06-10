@@ -1,9 +1,10 @@
 // models/user_app.dart
 import 'package:cloud_firestore/cloud_firestore.dart'; // Import dla Timestamp
+import 'package:equatable/equatable.dart';
 // Import modelu AppSettings
 import 'package:work_time_registration/models/wtr_settings.dart'; // Upewnij się, że ta ścieżka jest poprawna
 
-class UserApp {
+class UserApp extends Equatable {
   final String? uid;
   final String? email;
   final String? displayName;
@@ -27,6 +28,8 @@ class UserApp {
     this.email_lowercase,       // Dodano do konstruktora
   });
 
+  @override
+  List<Object?> get props => [uid];
   /// Pomocnicza metoda do parsowania różnych formatów daty
   static DateTime? _parseDateTime(dynamic dateTimeValue) {
     if (dateTimeValue == null) {

@@ -10,6 +10,7 @@ import 'package:work_time_registration/services/area_service.dart';
 import 'package:work_time_registration/user/edit_user_screen.dart';
 import '../home_screen.dart';
 import '../models/area.dart';
+import '../models/code-qr.dart';
 import '../models/information.dart';
 import '../models/information_category.dart';
 import '../models/license.dart';
@@ -17,6 +18,7 @@ import '../models/project.dart';
 import '../models/project_member.dart';
 import '../models/work_entry.dart';
 import '../models/work_type.dart';
+import '../screens/administration/administration-menu-screen.dart';
 import '../screens/area/areas_screen.dart';
 import '../screens/area/create_area_screen.dart';
 import '../screens/area/edit_area_screen.dart';
@@ -24,10 +26,13 @@ import '../screens/area/select_area_screen.dart';
 import '../screens/auth/login_screen.dart';
 import '../screens/auth/registration_screen.dart';
 import '../screens/auth/verification_screen.dart';
+import '../screens/codeQr/codes_qr_screen.dart';
+import '../screens/codeQr/create-code-qr-screen.dart';
 import '../screens/employer/my_employers_screen.dart';
 import '../screens/history/admin-history-menu-screen.dart';
 import '../screens/history/admin-info-history.dart';
 import '../screens/history/admin_work_history.dart';
+import '../screens/history/user_info_history_screen.dart';
 import '../screens/history/user_work_history.dart';
 import '../screens/information/create_information_screen.dart';
 import '../screens/information/edit_information_screen.dart';
@@ -40,6 +45,7 @@ import '../screens/project/my_projects_screen.dart';
 import '../screens/project/project_menu_screen.dart';
 import '../screens/work_type/area_work_types_screen.dart';
 import '../screens/work_type/create_work_type_screen.dart';
+import '../screens/codeQr/edit_code_qr_screen.dart';
 import '../screens/work_type/edit_work_type_screen.dart';
 import '../screens/work_type/select_work_type_screen.dart';
 import '../screens/work_type/work_types_screen.dart';
@@ -229,6 +235,13 @@ final appRouter = GoRouter(
       },
     ),
     GoRoute(
+      path: '/select-area',
+      builder: (context, state) {
+        final project = state.extra as Project;
+        return SelectAreaScreen(project: project,);
+      },
+    ),
+    GoRoute(
       path: '/select-area-for-user',
       builder: (context, state) {
         final extra = state.extra as Map<String, dynamic>;
@@ -293,6 +306,31 @@ final appRouter = GoRouter(
       },
     ),
     GoRoute(
+      path: '/codes-qr',
+      builder: (context, state) {
+        final extra = state.extra as Map<String, dynamic>;
+        final project = extra['project'] as Project;
+        final license = extra['license'] as License;
+        return CodesQrScreen(project: project, license: license,);
+      },
+    ),
+    GoRoute(
+      path: '/create-code-qr',
+      builder: (context, state) {
+        final extra = state.extra as Map<String, dynamic>;
+        final project = extra['project'] as Project;
+        final license = extra['license'] as License;
+        return CreateCodeQrScreen(project: project, license: license,);
+      },
+    ),
+    GoRoute(
+      path: '/edit-code-qr',
+      builder: (context, state) {
+        final codeQr = state.extra as CodeQr;
+        return EditCodeQrScreen(codeQr: codeQr,);
+      },
+    ),
+    GoRoute(
       path: '/area-work-types',
       builder: (context, state) {
         final extra = state.extra as Map<String, dynamic>;
@@ -321,6 +359,14 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/admin-info-history',
       builder: (context, state) => const AdminInfoHistoryScreen(),
+    ),
+    GoRoute(
+      path: '/user-info-history',
+      builder: (context, state) => const UserInfoHistoryScreen(),
+    ),
+    GoRoute(
+      path: '/administration-menu',
+      builder: (context, state) => const AdministrationMenuScreen(),
     ),
   ],
 );

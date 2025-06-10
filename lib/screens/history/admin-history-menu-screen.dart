@@ -20,7 +20,7 @@ class AdminHistoryMenuScreen extends StatelessWidget {
               context.pop();
             } else {
               // Domyślnie wróć do ekranu głównego, jeśli nie ma dokąd wrócić
-              context.go('/');
+              context.go('/administration-menu');
             }
           },
         ),
@@ -41,7 +41,7 @@ class AdminHistoryMenuScreen extends StatelessWidget {
                   trailing: const Icon(Icons.arrow_forward_ios),
                   onTap: () {
                     // Używamy push, aby umożliwić łatwy powrót przyciskiem "wstecz"
-                    context.push('/admin-history/work');
+                    context.push('/admin-work-history');
                   },
                 ),
               ),
@@ -55,7 +55,7 @@ class AdminHistoryMenuScreen extends StatelessWidget {
                   trailing: const Icon(Icons.arrow_forward_ios),
                   onTap: () {
                     // Używamy push, aby umożliwić łatwy powrót przyciskiem "wstecz"
-                    context.push('/admin-history/info');
+                    context.push('/admin-info-history');
                   },
                 ),
               ),

@@ -43,6 +43,19 @@ class UserHistoryMenuScreen extends StatelessWidget {
                   },
                 ),
               ),
+              Card(
+                elevation: 4,
+                margin: const EdgeInsets.symmetric(vertical: 8.0),
+                child: ListTile(
+                  leading: const Icon(Icons.work_history_outlined),
+                  title: const Text('Szczegółowa histori zadań'),
+                  subtitle: const Text('Przeglądaj szczegółowe informacje o swoim zadaniu'),
+                  trailing: const Icon(Icons.arrow_forward_ios),
+                  onTap: () {
+                    context.push('/user-info-history');
+                  },
+                ),
+              ),
               // Jeśli w przyszłości dodasz tu więcej opcji (np. "Historia moich informacji"),
               // wystarczy dodać kolejny widżet Card w tym miejscu.
             ],

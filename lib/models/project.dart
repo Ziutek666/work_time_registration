@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:equatable/equatable.dart';
 
-class Project {
+class Project extends Equatable  {
   final String projectId;
   final String ownerId;
   final String name;
@@ -13,6 +14,8 @@ class Project {
     this.description = '',
   });
 
+  @override
+  List<Object?> get props => [projectId];
   // Metoda copyWith do tworzenia kopii obiektu z możliwością zmiany wybranych pól
   Project copyWith({
     String? projectId,
