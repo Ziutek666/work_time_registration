@@ -41,24 +41,26 @@ class _QrWorkTypeSelectionDialogState extends State<QrWorkTypeSelectionDialog> {
     setState(() { _isProcessingAction = true; });
 
     try {
-      // Logika jest uproszczona, ponieważ po skanowaniu zawsze rozpoczynamy nową pracę
-      if (selectedWorkType.isBreak || selectedWorkType.isSubTask) {
-        throw Exception("Nie można rozpocząć pracy od przerwy lub podzadania po zeskanowaniu kodu QR.");
+      // ZMIANA: Używamy gettera `isMain` do sprawdzenia, czy to zadanie główne.
+      // To automatycznie wyklucza przerwy, podzadania i punkty kontrolne.
+      if (!selectedWorkType.isMain) {
+        throw Exception("Ten typ pracy ('${selectedWorkType.name}') nie jest zadaniem głównym i nie może zostać rozpoczęty przez skanowanie kodu QR.");
       }
 
       List<Information> infoList = await informationService.getInformationByIdsShowOnStart(selectedWorkType.informationIds);
       var infoListToWrite = await processInformationListWithDialogs(context: context, informationsToProcess: infoList);
 
       if (infoList.isNotEmpty && infoListToWrite == null) {
-        // Użytkownik anulował wprowadzanie informacji, przerywamy akcję
         setState(() => _isProcessingAction = false);
         return;
       }
 
+      // Ważne: Ta metoda w serwisie musi być zaktualizowana, aby poprawnie
+      // mapowała nowe pola z `selectedWorkType` do tworzonego obiektu WorkEntry.
       await workEntryService.recordWorkEvent(
         userId: userId,
         projectId: widget.scannedCode.projectId,
-        areaId: widget.scannedCode.areaId, // Używamy areaId z kodu QR
+        areaId: widget.scannedCode.areaId,
         workTypeSnapshot: selectedWorkType,
         isStartingEvent: true,
         relatedInformations: infoListToWrite ?? [],
@@ -70,7 +72,7 @@ class _QrWorkTypeSelectionDialogState extends State<QrWorkTypeSelectionDialog> {
           backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
         ));
-        Navigator.of(context).pop(true); // Zwracamy 'true' jako sygnał sukcesu
+        Navigator.of(context).pop(true);
       }
 
     } catch (e) {
@@ -125,16 +127,17 @@ class _QrWorkTypeSelectionDialogState extends State<QrWorkTypeSelectionDialog> {
       actions: <Widget>[
         TextButton(
           child: Text('Anuluj', style: TextStyle(color: colorScheme.onSurfaceVariant)),
-          onPressed: _isProcessingAction ? null : () {
-            Navigator.of(context).pop(false);
-          },
+          onPressed: _isProcessingAction ? null : () => Navigator.of(context).pop(false),
         ),
       ],
     );
   }
 
   Widget _buildDialogContent(ThemeData theme) {
-    if (widget.availableWorkTypes.isEmpty) {
+    // ZMIANA: Filtrujemy listę na początku, używając gettera `isMain`
+    final mainWorkTypes = widget.availableWorkTypes.where((wt) => wt.isMain).toList();
+
+    if (mainWorkTypes.isEmpty) {
       return ConstrainedBox(
         constraints: const BoxConstraints(minHeight: 180),
         child: Center(
@@ -146,7 +149,7 @@ class _QrWorkTypeSelectionDialogState extends State<QrWorkTypeSelectionDialog> {
               Text('Brak Dostępnych Akcji', style: theme.textTheme.titleLarge, textAlign: TextAlign.center),
               const SizedBox(height: 8),
               Text(
-                'Ten kod QR nie ma przypisanych żadnych zadań, które można by teraz rozpocząć.',
+                'Ten kod QR nie ma przypisanych żadnych zadań głównych, które można by teraz rozpocząć.',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
               ),
@@ -165,13 +168,9 @@ class _QrWorkTypeSelectionDialogState extends State<QrWorkTypeSelectionDialog> {
           Expanded(
             child: ListView.builder(
               shrinkWrap: true,
-              itemCount: widget.availableWorkTypes.length,
+              itemCount: mainWorkTypes.length,
               itemBuilder: (context, index) {
-                final workType = widget.availableWorkTypes[index];
-                // Wyświetlamy tylko zadania główne, bo tylko takie można rozpocząć po skanie
-                if (workType.isBreak || workType.isSubTask) {
-                  return const SizedBox.shrink();
-                }
+                final workType = mainWorkTypes[index];
                 return _buildWorkTypeListItem(workType, theme);
               },
             ),

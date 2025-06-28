@@ -73,8 +73,7 @@ class WorkEntryRepository {
       final querySnapshot = await _workEntriesCollection
           .where('userId', isEqualTo: userId)
           .where('projectId', isEqualTo: projectId)
-          .where('workTypeIsSubTask', isEqualTo: false)
-          .where('workTypeIsBreak', isEqualTo: false)
+          .where('workTypeIsMain', isEqualTo: true)
           .orderBy('eventActionTimestamp', descending: true) // ZMIANA
           .limit(1)
           .get();
@@ -99,6 +98,23 @@ class WorkEntryRepository {
     } catch (e, s) {
       print("Error in getWorkEntryById (repo) for ID $entryId: $e\n$s");
       return null;
+    }
+  }
+
+  /// Pobiera listę ZAKOŃCZONYCH (isStart: false) wpisów podrzędnych dla danego zadania nadrzędnego.
+  Future<List<WorkEntry>> getCompletedSubEntriesFor(String parentEntryId) async {
+    if (parentEntryId.isEmpty) return [];
+    try {
+      final querySnapshot = await _firestore
+          .collection('workEntries')
+          .where('parentWorkEntryId', isEqualTo: parentEntryId)
+          .where('workTypeIsRequired', isEqualTo: true)
+          .get();
+      print(querySnapshot.docs.map((doc) => WorkEntry.fromFirestore(doc)).toList());
+      return querySnapshot.docs.map((doc) => WorkEntry.fromFirestore(doc)).toList();
+    } catch (e) {
+      print('Błąd podczas pobierania ukończonych podzadań dla $parentEntryId: $e');
+      return [];
     }
   }
 
@@ -132,7 +148,24 @@ class WorkEntryRepository {
       throw Exception("Nie udało się pobrać historii pracy: ${e.toString()}");
     }
   }
+  Future<List<WorkEntry>> getWorkEntriesForOwnerBetweenDates(String ownerId, DateTime startDate, DateTime endDate) async {
+    print('WorkEntryRepository: Pobieranie wpisów dla userId: $ownerId między $startDate a $endDate');
+    try {
+      final querySnapshot = await _workEntriesCollection
+          .where('ownerId', isEqualTo: ownerId)
+          .where('eventActionTimestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate)) // ZMIANA
+          .where('eventActionTimestamp', isLessThan: Timestamp.fromDate(endDate)) // ZMIANA
+          .orderBy('eventActionTimestamp', descending: true) // ZMIANA
+          .get();
 
+      final entries = querySnapshot.docs.map((doc) => WorkEntry.fromFirestore(doc)).toList();
+      print('WorkEntryRepository: Znaleziono ${entries.length} wpisów.');
+      return entries;
+    } catch (e, s) {
+      print("Error in getWorkEntriesForUserBetweenDates (repo): $e\n$s");
+      throw Exception("Nie udało się pobrać historii pracy: ${e.toString()}");
+    }
+  }
   /// Pobiera wszystkie wpisy pracy dla listy projektów w określonym zakresie dat.
   Future<List<WorkEntry>> getWorkEntriesForProjectsBetweenDates(List<String> projectIds, DateTime startDate, DateTime endDate) async {
     print('WorkEntryRepository: Pobieranie wpisów dla ${projectIds.length} projektów między $startDate a $endDate');

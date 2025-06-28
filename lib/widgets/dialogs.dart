@@ -388,12 +388,25 @@ Widget buildDialogPriorityIcon(BuildContext context, int priority, bool requires
   return Icon(iconData, color: iconColor, size: 26); // Nieco mniejsza ikona dla Dropdown
 }
 
-/// Wyświetla dialog z informacją, dynamicznie pobierając dane jej kategorii.
-///
-/// Zwraca:
-/// - Obiekt `Information` z zaktualizowanymi polami `decision` i `textResponse`,
-///   jeśli użytkownik kliknął "Dalej".
-/// - `null` jeśli dialog został zamknięty przyciskiem "Anuluj" lub w inny sposób.
+/// Wyświetla prosty dialog ładowania, którego nie można zamknąć.
+/// Należy go zamknąć programowo za pomocą `Navigator.of(context).pop()`.
+void showLoadingDialog(BuildContext context, String message) {
+  showDialog(
+    context: context,
+    barrierDismissible: false, // Użytkownik nie może zamknąć dialogu
+    builder: (BuildContext context) {
+      return AlertDialog(
+        content: Row(
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(width: 24),
+            Text(message),
+          ],
+        ),
+      );
+    },
+  );
+}
 Future<Information?> showInformationDialog({
   required BuildContext context,
   required Information information,

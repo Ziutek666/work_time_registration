@@ -15,19 +15,17 @@ class WorkEntry {
   final bool workTypeIsBreak;
   final bool workTypeIsPaid;
   final bool workTypeIsSubTask;
+  final bool workTypeIsCheckPoint;
+  final bool workTypeIsRequired;
+  final bool workTypeIsMain; // DODANE DLA UPROSZCZENIA
   final List<String> workTypeInformationIds;
 
-  // ZMIENIONE POLA CZASU
-  /// Czas dokładnego kliknięcia przycisku "Rozpocznij" lub "Zakończ" przez użytkownika.
   final Timestamp eventActionTimestamp;
-  /// Czas zapisu całego obiektu WorkEntry do bazy danych (po ewentualnym wypełnieniu informacji).
   final Timestamp? saveTimestamp;
-
-  final bool isStart; // Pozostaje, aby rozróżnić zdarzenie startu i stopu
+  final bool isStart;
 
   String? description;
   final String? parentWorkEntryId;
-
   final List<Information>? relatedInformations;
 
   WorkEntry({
@@ -42,9 +40,12 @@ class WorkEntry {
     required this.workTypeIsBreak,
     required this.workTypeIsPaid,
     required this.workTypeIsSubTask,
+    required this.workTypeIsCheckPoint,
+    required this.workTypeIsRequired,
+    required this.workTypeIsMain, // DODANE
     required this.workTypeInformationIds,
-    required this.eventActionTimestamp, // ZMIENIONO
-    this.saveTimestamp,             // DODANO
+    required this.eventActionTimestamp,
+    this.saveTimestamp,
     required this.isStart,
     this.description,
     this.parentWorkEntryId,
@@ -64,10 +65,10 @@ class WorkEntry {
           .toList();
     }
 
-    List<String> wtInfoIds = [];
-    if (data['workTypeInformationIds'] != null && data['workTypeInformationIds'] is List) {
-      wtInfoIds = List<String>.from(data['workTypeInformationIds'] as List<dynamic>);
-    }
+    // Odczytujemy flagi, aby móc obliczyć isMain w razie potrzeby
+    final isBreak = data['workTypeIsBreak'] as bool? ?? false;
+    final isSubTask = data['workTypeIsSubTask'] as bool? ?? false;
+    final isCheckPoint = data['workTypeIsCheckPoint'] as bool? ?? false;
 
     return WorkEntry(
       entryId: doc.id,
@@ -78,11 +79,14 @@ class WorkEntry {
       workTypeName: data['workTypeName'] as String? ?? 'N/A',
       workTypeDescription: data['workTypeDescription'] as String? ?? '',
       workTypeDefaultDurationInSeconds: data['workTypeDefaultDurationInSeconds'] as int?,
-      workTypeIsBreak: data['workTypeIsBreak'] as bool? ?? false,
+      workTypeIsBreak: isBreak,
       workTypeIsPaid: data['workTypeIsPaid'] as bool? ?? true,
-      workTypeIsSubTask: data['workTypeIsSubTask'] as bool? ?? false,
-      workTypeInformationIds: wtInfoIds,
-      // Zapewnienie kompatybilności wstecznej: jeśli stare pole 'eventTimestamp' istnieje, użyj go
+      workTypeIsSubTask: isSubTask,
+      workTypeIsCheckPoint: isCheckPoint,
+      workTypeIsRequired: data['workTypeIsRequired'] as bool? ?? false,
+      // DODANE: Kompatybilność wsteczna - jeśli pole nie istnieje, oblicz je
+      workTypeIsMain: data['workTypeIsMain'] as bool? ?? (!isBreak && !isSubTask && !isCheckPoint),
+      workTypeInformationIds: List<String>.from(data['workTypeInformationIds'] as List<dynamic>? ?? []),
       eventActionTimestamp: data['eventActionTimestamp'] as Timestamp? ?? data['eventTimestamp'] as Timestamp? ?? Timestamp.now(),
       saveTimestamp: data['saveTimestamp'] as Timestamp?,
       isStart: data['isStart'] as bool? ?? true,
@@ -104,9 +108,12 @@ class WorkEntry {
     bool? workTypeIsBreak,
     bool? workTypeIsPaid,
     bool? workTypeIsSubTask,
+    bool? workTypeIsCheckPoint,
+    bool? workTypeIsRequired,
+    bool? workTypeIsMain, // DODANE
     List<String>? workTypeInformationIds,
-    Timestamp? eventActionTimestamp, // ZMIENIONO
-    Timestamp? saveTimestamp,        // DODANO
+    Timestamp? eventActionTimestamp,
+    Timestamp? saveTimestamp,
     bool? isStart,
     String? description,
     String? parentWorkEntryId,
@@ -123,16 +130,19 @@ class WorkEntry {
       workTypeName: workTypeName ?? this.workTypeName,
       workTypeDescription: workTypeDescription ?? this.workTypeDescription,
       workTypeDefaultDurationInSeconds: workTypeDefaultDurationInSeconds ?? this.workTypeDefaultDurationInSeconds,
-      workTypeIsBreak: workTypeIsBreak ?? false,
-      workTypeIsPaid: workTypeIsPaid ?? false,
-      workTypeIsSubTask: workTypeIsSubTask ?? false,
+      workTypeIsBreak: workTypeIsBreak ?? this.workTypeIsBreak,
+      workTypeIsPaid: workTypeIsPaid ?? this.workTypeIsPaid,
+      workTypeIsSubTask: workTypeIsSubTask ?? this.workTypeIsSubTask,
+      workTypeIsCheckPoint: workTypeIsCheckPoint ?? this.workTypeIsCheckPoint,
+      workTypeIsRequired: workTypeIsRequired ?? this.workTypeIsRequired,
+      workTypeIsMain: workTypeIsMain ?? this.workTypeIsMain, // DODANE
       workTypeInformationIds: workTypeInformationIds ?? List<String>.from(this.workTypeInformationIds),
       eventActionTimestamp: eventActionTimestamp ?? this.eventActionTimestamp,
       saveTimestamp: saveTimestamp ?? this.saveTimestamp,
       isStart: isStart ?? this.isStart,
       description: description ?? this.description,
       parentWorkEntryId: clearParentWorkEntryId == true ? null : (parentWorkEntryId ?? this.parentWorkEntryId),
-      relatedInformations: clearRelatedInformations == true ? null : (relatedInformations ?? (this.relatedInformations != null ? List<Information>.from(this.relatedInformations!.map((info) => info.copyWith())) : null)),
+      relatedInformations: clearRelatedInformations == true ? null : (relatedInformations != null ? List<Information>.from(this.relatedInformations!.map((info) => info.copyWith())) : null),
     );
   }
 
@@ -149,9 +159,12 @@ class WorkEntry {
       'workTypeIsBreak': workTypeIsBreak,
       'workTypeIsPaid': workTypeIsPaid,
       'workTypeIsSubTask': workTypeIsSubTask,
+      'workTypeIsCheckPoint': workTypeIsCheckPoint,
+      'workTypeIsRequired': workTypeIsRequired,
+      'workTypeIsMain': workTypeIsMain, // DODANE
       'workTypeInformationIds': workTypeInformationIds,
-      'eventActionTimestamp': eventActionTimestamp, // ZMIENIONO
-      'saveTimestamp': saveTimestamp,             // DODANO
+      'eventActionTimestamp': eventActionTimestamp,
+      'saveTimestamp': saveTimestamp,
       'isStart': isStart,
       if (description != null) 'description': description,
       if (parentWorkEntryId != null) 'parentWorkEntryId': parentWorkEntryId,

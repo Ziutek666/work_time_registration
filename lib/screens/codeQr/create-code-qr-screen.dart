@@ -1,16 +1,19 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 
 // Importy modeli
-import '../../models/area.dart'; // <-- Dodany import
+import '../../models/area.dart';
 import '../../models/project.dart';
 import '../../models/license.dart';
 import '../../models/work_type.dart';
 
 // Importy serwisów i widgetów
 import '../../exceptions/code_qr_exception.dart';
-import '../../services/area_service.dart'; // <-- Dodany import
+import '../../services/area_service.dart';
 import '../../services/code_qr_service.dart';
+import '../../services/location_service.dart'; // Upewnij się, że ten import jest poprawny
 import '../../services/work_type_service.dart';
 import '../../../widgets/dialogs.dart';
 
@@ -35,43 +38,55 @@ class _CreateCodeQrScreenState extends State<CreateCodeQrScreen> {
 
   bool _isSaving = false;
 
-  // --- NOWY STAN DLA OBSZARU I TYPÓW PRACY ---
+  // --- Stan dla obszaru i typów pracy ---
   Area? _selectedArea;
-
-  // Lista typów pracy dostępnych dla wybranego obszaru
   List<WorkType> _availableWorkTypesForArea = [];
-  // Lista ID typów pracy zaznaczonych przez użytkownika
   List<String> _selectedWorkTypesIds = [];
-
   bool _isLoadingWorkTypes = false;
+
+  // --- NOWOŚĆ: Stan dla lokalizacji ---
+  final _maxDistanceController = TextEditingController(text: '100'); // Domyślny dystans
+  bool _checkLocation = false;
+  GeoPoint? _currentLocation;
+  bool _isGettingLocation = false;
 
   @override
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
+    _maxDistanceController.dispose(); // NOWOŚĆ
     super.dispose();
   }
 
   Future<void> _createQrCode() async {
     if (_isSaving) return;
-    // Walidacja formularza i wybranego obszaru
     if (!_formKey.currentState!.validate()) return;
     if (_selectedArea == null) {
       showErrorDialog(context, 'Brak Obszaru', 'Musisz wybrać obszar, do którego chcesz przypisać ten kod QR.');
+      return;
+    }
+    // NOWOŚĆ: Walidacja lokalizacji
+    if (_checkLocation && _currentLocation == null) {
+      showErrorDialog(context, 'Brak Lokalizacji', 'Jeśli weryfikacja lokalizacji jest włączona, musisz najpierw pobrać lokalizację.');
       return;
     }
 
     setState(() { _isSaving = true; });
 
     try {
+      // MODYFIKACJA: Przekazanie danych o lokalizacji do serwisu
       await codeQrService.createCodeQr(
         name: _nameController.text.trim(),
         projectId: widget.project.projectId,
-        areaId: _selectedArea!.areaId, // <-- Przekazanie ID obszaru
+        areaId: _selectedArea!.areaId,
         ownerId: widget.project.ownerId,
         licenseId: widget.license?.licenseId ?? '',
         description: _descriptionController.text.trim(),
-        workTypeIds: _selectedWorkTypesIds, // <-- Przekazanie zaznaczonych typów pracy
+        workTypeIds: _selectedWorkTypesIds,
+        // Nowe pola:
+        checkLocation: _checkLocation,
+        location: _checkLocation ? _currentLocation : null,
+        maxDistanceInMeters: _checkLocation ? int.tryParse(_maxDistanceController.text.trim()) : null,
       );
 
       if (!mounted) return;
@@ -91,27 +106,24 @@ class _CreateCodeQrScreenState extends State<CreateCodeQrScreen> {
     }
   }
 
-  /// Otwiera ekran wyboru obszaru.
+  // --- Metody do obsługi obszaru i typów pracy (bez zmian) ---
   Future<void> _selectArea() async {
     if (_isSaving) return;
     final result = await context.push<Area?>(
-      '/select-area',
+      '/select-area', // Upewnij się, że ta ścieżka jest poprawna w Twoim routerze
       extra: widget.project,
     );
 
     if (result != null && mounted) {
       setState(() {
         _selectedArea = result;
-        // Resetujemy poprzednie wybory po zmianie obszaru
         _availableWorkTypesForArea.clear();
         _selectedWorkTypesIds.clear();
       });
-      // Ładujemy typy pracy dla nowo wybranego obszaru
       await _loadWorkTypesForSelectedArea();
     }
   }
 
-  /// Ładuje typy pracy na podstawie ID powiązanych z wybranym obszarem.
   Future<void> _loadWorkTypesForSelectedArea() async {
     if (_selectedArea == null || _selectedArea!.workTypesIds.isEmpty) {
       setState(() => _availableWorkTypesForArea = []);
@@ -137,7 +149,6 @@ class _CreateCodeQrScreenState extends State<CreateCodeQrScreen> {
     }
   }
 
-  /// Obsługuje zaznaczenie/odznaczenie checkboxa dla typu pracy.
   void _onWorkTypeSelected(bool? isSelected, String workTypeId) {
     setState(() {
       if (isSelected == true) {
@@ -148,6 +159,30 @@ class _CreateCodeQrScreenState extends State<CreateCodeQrScreen> {
         _selectedWorkTypesIds.remove(workTypeId);
       }
     });
+  }
+
+  // --- NOWOŚĆ: Metoda do pobierania lokalizacji ---
+  Future<void> _getCurrentLocation() async {
+    if (_isGettingLocation) return;
+    setState(() => _isGettingLocation = true);
+
+    try {
+      final position = await LocationService.determinePosition();
+      if (mounted) {
+        setState(() {
+          _currentLocation = GeoPoint(position.latitude, position.longitude);
+        });
+        showInfoDialog(context, 'Sukces', 'Pobrano aktualną lokalizację.');
+      }
+    } catch (e) {
+      if (mounted) {
+        showErrorDialog(context, 'Błąd Lokalizacji', e.toString());
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isGettingLocation = false);
+      }
+    }
   }
 
   @override
@@ -227,6 +262,11 @@ class _CreateCodeQrScreenState extends State<CreateCodeQrScreen> {
                           const SizedBox(height: 16.0),
                           _buildWorkTypeSelectionSection(theme),
 
+                          // --- NOWOŚĆ: Sekcja lokalizacji ---
+                          const SizedBox(height: 24.0),
+                          _buildLocationSection(theme),
+                          // --- Koniec nowej sekcji ---
+
                           const SizedBox(height: 32.0),
                           ElevatedButton.icon(
                             icon: const Icon(Icons.qr_code_scanner),
@@ -284,7 +324,6 @@ class _CreateCodeQrScreenState extends State<CreateCodeQrScreen> {
     );
   }
 
-  /// Buduje sekcję wyboru obszaru.
   Widget _buildAreaSelectionSection(ThemeData theme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -308,22 +347,22 @@ class _CreateCodeQrScreenState extends State<CreateCodeQrScreen> {
     );
   }
 
-  /// Buduje sekcję wyboru typów pracy, widoczną po wybraniu obszaru.
   Widget _buildWorkTypeSelectionSection(ThemeData theme) {
-    // Sekcja jest ukryta, dopóki nie wybierzemy obszaru
     if (_selectedArea == null) {
-      return const SizedBox.shrink();
+      return Container(
+        padding: const EdgeInsets.all(16.0),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+          borderRadius: BorderRadius.circular(8.0),
+        ),
+        child: const Center(child: Text('Najpierw wybierz obszar, aby zobaczyć dostępne typy pracy.')),
+      );
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSectionTitle(theme.textTheme, "2. Wybierz Typy Pracy dla Kodu QR"),
-        Text(
-          'Zaznacz zadania, które będą dostępne do rozpoczęcia po zeskanowaniu tego kodu QR.',
-          style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-        ),
-        const SizedBox(height: 12.0),
 
         if (_isLoadingWorkTypes)
           const Center(child: Padding(padding: EdgeInsets.all(16.0), child: CircularProgressIndicator()))
@@ -337,7 +376,6 @@ class _CreateCodeQrScreenState extends State<CreateCodeQrScreen> {
             child: const Center(child: Text('Wybrany obszar nie ma przypisanych żadnych typów pracy.')),
           )
         else
-        // Lista Checkboxów do wyboru
           Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
@@ -351,11 +389,6 @@ class _CreateCodeQrScreenState extends State<CreateCodeQrScreen> {
                 final workType = _availableWorkTypesForArea[index];
                 return CheckboxListTile(
                   title: Text(workType.name),
-                  subtitle: Text(
-                    workType.description.isNotEmpty ? workType.description : 'Brak opisu',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
                   value: _selectedWorkTypesIds.contains(workType.workTypeId),
                   onChanged: (bool? value) {
                     if (!_isSaving) {
@@ -367,6 +400,89 @@ class _CreateCodeQrScreenState extends State<CreateCodeQrScreen> {
               separatorBuilder: (context, index) => const Divider(height: 1),
             ),
           ),
+      ],
+    );
+  }
+
+  // --- NOWOŚĆ: Widget budujący sekcję lokalizacji ---
+  Widget _buildLocationSection(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionTitle(theme.textTheme, "3. Lokalizacja (Opcjonalnie)"),
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: theme.colorScheme.outline.withOpacity(0.3)),
+          ),
+          child: Column(
+            children: [
+              SwitchListTile(
+                title: const Text("Wymagaj weryfikacji lokalizacji"),
+                subtitle: const Text("Skanowanie powiedzie się tylko w pobliżu"),
+                value: _checkLocation,
+                onChanged: (value) {
+                  setState(() {
+                    _checkLocation = value;
+                  });
+                },
+                secondary: Icon(Icons.location_on_outlined, color: theme.colorScheme.primary),
+              ),
+              if (_checkLocation)
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeInOut,
+                  child: Column(
+                    children: [
+                      const Divider(height: 1),
+                      Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _buildTextFormField(
+                              controller: _maxDistanceController,
+                              labelText: 'Maksymalny dystans (w metrach)',
+                              validator: (v) {
+                                if (v == null || v.trim().isEmpty) return 'Pole jest wymagane.';
+                                if (int.tryParse(v) == null) return 'Wprowadź poprawną liczbę.';
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                            if (_isGettingLocation)
+                              const Center(child: CircularProgressIndicator())
+                            else
+                              OutlinedButton.icon(
+                                icon: const Icon(Icons.my_location),
+                                label: const Text('Pobierz aktualną lokalizację'),
+                                onPressed: _getCurrentLocation,
+                              ),
+                            const SizedBox(height: 8),
+                            if (_currentLocation != null)
+                              Center(
+                                child: Text(
+                                  'Zapisano: ${_currentLocation!.latitude.toStringAsFixed(5)}, '
+                                      '${_currentLocation!.longitude.toStringAsFixed(5)}',
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                              )
+                            else
+                              Center(
+                                child: Text(
+                                  'Nie pobrano jeszcze lokalizacji',
+                                  style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
       ],
     );
   }

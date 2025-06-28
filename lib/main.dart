@@ -1,3 +1,4 @@
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -12,6 +13,21 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  // Initialize App Check!
+  const reCaptchaV3SiteKey = '6LfYi24rAAAAACNrcPILqXEvdklRvawgX_typzux';
+  await FirebaseAppCheck.instance.activate(
+    // Set the appropriate provider for the web platform (using your reCAPTCHA site key)
+    webProvider: ReCaptchaV3Provider(reCaptchaV3SiteKey),
+
+    // Set the provider for Android. Play Integrity is generally recommended for production.
+    // During development, you might use AndroidProvider.debug initially.
+    androidProvider: AndroidProvider.playIntegrity,
+
+    // Set the provider for Apple platforms (iOS/macOS). App Attest is more secure where available.
+    // During development, you might use AppleProvider.debug initially.
+    appleProvider: AppleProvider.appAttest,
+  );
+
   // Inicjalizacja formatowania dat dla języka polskiego
   await initializeDateFormatting('pl_PL', null);
   runApp(const MyApp());

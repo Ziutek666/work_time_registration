@@ -1,4 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 // Załóżmy, że model Information i funkcja showInformationDialog są dostępne
 // poprzez odpowiednie importy. Dostosuj ścieżki do swojej struktury projektu.
 import 'package:work_time_registration/models/information.dart';
@@ -25,3 +27,5 @@ Future<List<Information>?> processInformationListWithDialogs({
 
   return processedInformations;
 }
+
+String formatEventTime(Timestamp timestamp) => DateFormat('dd.MM.yyyy HH:mm', 'pl_PL').format(timestamp.toDate());

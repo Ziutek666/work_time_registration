@@ -118,7 +118,7 @@ class ProjectRepository {
             projects.add(Project(
               projectId: projectData['projectId'],
               name: projectData['name'] as String,
-              ownerId: '',
+              ownerId: projectData['ownerId'] as String,
             ));
           }
         }

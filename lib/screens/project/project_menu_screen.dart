@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 // Założenie: importy są poprawne i pliki istnieją w projekcie.
 import '../../models/license.dart';
 import '../../models/project.dart';
-// import 'package:qr_code_scanner/qr_code_scanner.dart'; // Jeśli jest potrzebny, odkomentuj
 
 class ProjectMenuScreen extends StatefulWidget {
   final Project project;
@@ -106,16 +105,6 @@ class _ProjectMenuScreenState extends State<ProjectMenuScreen> {
         const SizedBox(height: 12),
         _buildMenuOption(
           theme: theme,
-          icon: Icons.supervised_user_circle_sharp, // Bardziej pasująca ikona
-          title: 'Pracownicy',
-          onTap: () => context.push('/project_members', extra: {
-            'project': widget.project,
-            'license': widget.license,
-          }),
-        ),
-        const SizedBox(height: 12),
-        _buildMenuOption(
-          theme: theme,
           icon: Icons.qr_code_2, // Bardziej pasująca ikona
           title: 'Kody QR',
           onTap: () => context.push('/codes-qr', extra: {
@@ -123,37 +112,6 @@ class _ProjectMenuScreenState extends State<ProjectMenuScreen> {
             'license': widget.license,
           }),
         ),
-        const SizedBox(height: 12),
-        _buildMenuOption(
-          theme: theme,
-          icon: Icons.history_edu_outlined, // Bardziej pasująca ikona
-          title: 'Historia zdarzeń (Logi)', // Zmieniona nazwa dla spójności
-          onTap: () => context.push('/adminLogs', extra: widget.project),
-        ),
-        if (widget.license != null) ...[ // Sekcja licencji tylko jeśli licencja istnieje
-          const SizedBox(height: 24),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0),
-            child: Text(
-              "Licencja i subskrypcja",
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: theme.colorScheme.onSurface.withOpacity(0.7),
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          _buildMenuOption(
-            theme: theme,
-            icon: Icons.payment_outlined,
-            title: 'Zarządzaj subskrypcją',
-            onTap: () {
-              if (widget.license != null) {
-                context.push('/buySubscription', extra: widget.license);
-              }
-            },
-          ),
-        ],
       ],
     );
   }

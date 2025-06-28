@@ -31,8 +31,6 @@ class Information {
     this.textResponseRequiredOnDecision = false,
     this.decision,
     this.textResponse,
-    // List<UserAction>? acceptedBy, // USUNIĘTO
-    // List<UserAction>? declinedBy, // USUNIĘTO
     this.adminRead = false,
     this.showOnStart = false,
     this.showOnStop = false,
@@ -85,7 +83,9 @@ class Information {
       'showOnStop': showOnStop,
     };
   }
-
+  String toAiString() {
+    return toMap().toString();
+  }
   Information copyWith({
     String? informationId,
     String? projectId,

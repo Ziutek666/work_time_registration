@@ -48,6 +48,12 @@ dependencies:
   equatable: ^2.0.5
   qr_flutter: ^4.1.0
   ai_barcode_scanner: ^6.0.1
+  excel: ^4.0.2
+  file_saver: ^0.2.12
+  firebase_ai: ^2.1.0
+  firebase_vertexai: ^1.8.0
+  firebase_app_check: ^0.3.2+7
+  geolocator: ^13.0.2
 
 
 

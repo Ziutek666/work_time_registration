@@ -19,6 +19,22 @@ class LicenseRepository {
       throw LicenseFetchException('Wystąpił błąd podczas pobierania licencji o ID $licenseId: $e');
     }
   }
+  Future<License?> getLicenseForOwner(String ownerId) async {
+    try {
+      final snapshot = await _firestore
+          .collection(_collectionName)
+          .where('ownerId', isEqualTo: ownerId)
+          .limit(1)
+          .get();
+
+      if (snapshot.docs.isNotEmpty) {
+        return License.fromFirestore(snapshot.docs.first);
+      }
+      return null;
+    } catch (e) {
+      throw LicenseFetchException('Wystąpił błąd podczas pobierania licencji dla systemu $ownerId: $e');
+    }
+  }
 
   Future<License?> getLicenseForProject(String projectId) async {
     try {

@@ -44,12 +44,13 @@ class _CreateAreaScreenState extends State<CreateAreaScreen> {
   // --- Metody dla POWIĄZANYCH TYPÓW PRACY ---
   Future<void> _selectAndLinkWorkType() async {
     if (_isSaving) return;
-    // Założenie: '/select_work_type' to trasa do ekranu wyboru typu pracy,
-    // który zwraca wybrany obiekt WorkType lub null.
-    // Przekazujemy projectId, aby filtrować typy pracy dla danego projektu.
     final selectedWorkType = await context.push<WorkType?>(
       '/select_work_type', // Upewnij się, że ta trasa istnieje
-      extra: widget.project.projectId,
+        extra: {
+          'projectId': widget.project.projectId,
+          'filter_type': 'main', // Przekazanie informacji o typie filtrowania
+          // Ekran '/select_work_type_for_linking' musi obsłużyć ten filtr
+        }
     );
 
     if (selectedWorkType != null && mounted) {

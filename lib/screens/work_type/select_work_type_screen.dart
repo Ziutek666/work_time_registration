@@ -47,7 +47,7 @@ class _SelectWorkTypeScreenState extends State<SelectWorkTypeScreen> {
     });
     try {
       List<WorkType> fetchedWorkTypes = [];
-      if (widget.filterType == 'subtask_or_break') {
+      if (widget.filterType == 'not_main') {
         fetchedWorkTypes = await workTypeService.getSubOrBreakWorkTypesForProject(widget.projectId);
       } else if (widget.filterType == 'main') {
         fetchedWorkTypes = await workTypeService.getMainWorkTypesForProject(widget.projectId);

@@ -37,7 +37,7 @@ class Area extends Equatable {
     required this.areaId,
     required this.projectId,
     required this.ownerId,
-    this.active = false,
+    this.active = true,
     this.description = '',
     this.users = const [],
     List<String>? workTypesIds, // <<<--- DODANO DO KONSTRUKTORA

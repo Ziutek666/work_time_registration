@@ -2,17 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'package:work_time_registration/services/location_service.dart';
 import 'package:work_time_registration/services/members_service.dart';
 import 'package:work_time_registration/widgets/area_select_dialog.dart';
 import 'package:work_time_registration/widgets/project_selection_dialog.dart';
 import 'package:work_time_registration/widgets/qr_work_type_selection_dialog.dart';
 import 'package:work_time_registration/widgets/select_work_type_to_start_dialog.dart';
 import 'models/area.dart';
-import 'models/code-qr.dart';
 import 'models/information.dart';
 import 'models/project.dart';
 import 'models/work_entry.dart';
@@ -81,7 +78,6 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _loadActiveWorkEvent() async {
-    // ... bez zmian
     if (!mounted) return;
     _stopCountdownTimer();
     setState(() {
@@ -107,7 +103,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     try {
       WorkEntry? latestEvent =
-      await workEntryService.getLatestEventForUser(currentUser.uid);
+          await workEntryService.getLatestEventForUser(currentUser.uid);
       WorkEntry? activeEntryToShow;
 
       if (latestEvent == null) {
@@ -124,18 +120,18 @@ class _HomeScreenState extends State<HomeScreen>
       } else {
         if (!isLastEventMain) {
           activeEntryToShow =
-          await workEntryService.getLatestMainActiveEventForUserInProject(
-              currentUser.uid, latestEvent.projectId);
+              await workEntryService.getLatestMainActiveEventForUserInProject(
+                  currentUser.uid, latestEvent.projectId);
         }
       }
 
       if (mounted && activeEntryToShow != null) {
         final projectDetailsFuture =
-        projectService.getProject(activeEntryToShow.projectId);
+            projectService.getProject(activeEntryToShow.projectId);
         final areaDetailsFuture = areaService.getArea(activeEntryToShow.areaId);
 
         final results =
-        await Future.wait([projectDetailsFuture, areaDetailsFuture]);
+            await Future.wait([projectDetailsFuture, areaDetailsFuture]);
         final projectDetails = results[0] as Project?;
         final areaDetails = results[1] as Area?;
 
@@ -175,11 +171,10 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _loadCompletedSubTasks(String parentEntryId) async {
-    // ... bez zmian
     if (!mounted) return;
     try {
       final completedEntries =
-      await workEntryService.getCompletedSubEntriesFor(parentEntryId);
+          await workEntryService.getCompletedSubEntriesFor(parentEntryId);
       if (mounted) {
         setState(() {
           _completedSubTaskIds =
@@ -192,15 +187,14 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _loadAvailableActionsForMainTask(String mainWorkTypeId) async {
-    // ... bez zmian
     if (!mounted) return;
     setState(() => _isLoadingNextActions = true);
     try {
       final mainWorkType = await workTypeService.getWorkType(mainWorkTypeId);
       if (mainWorkType != null && mainWorkType.subTaskIds.isNotEmpty) {
         _availableNextActions =
-        await workTypeService.getWorkTypesByIds(mainWorkType.subTaskIds)
-          ..sort((a, b) => a.name.compareTo(b.name));
+            await workTypeService.getWorkTypesByIds(mainWorkType.subTaskIds)
+              ..sort((a, b) => a.name.compareTo(b.name));
       } else {
         _availableNextActions = [];
       }
@@ -211,62 +205,17 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  // MODYFIKACJA: Dodano logikę sprawdzania QR przy zakańczaniu pracy
   Future<void> _stopCurrentWork(Timestamp customEventTimestamp) async {
     if (_activeWorkEntry == null || !mounted) return;
 
     final workEntryToStop = _activeWorkEntry!;
-
-    // NOWOŚĆ: Sprawdzenie, czy zadanie wymaga skanowania QR przy zakończeniu
-    try {
-      final workTypeDetails = await workTypeService.getWorkType(workEntryToStop.workTypeId);
-
-      // WAŻNE: Poniższa linijka zakłada, że do modelu WorkType DODANO pole `requiresQrScanOnStop`
-      if (workTypeDetails?.requiresQrScan == true) {
-        if (!mounted) return;
-
-        final rawValue = await Navigator.push<String>(
-            context,
-            MaterialPageRoute(
-                fullscreenDialog: true,
-                builder: (context) => const QrScannerScreen()));
-        if (rawValue == null) return;
-
-        final Map<String, dynamic> decodedData = jsonDecode(rawValue);
-        final String? codeId = decodedData['i'];
-        if (codeId == null) throw Exception("Nieprawidłowy format kodu QR.");
-
-        final code = await codeQrService.getCodeQrById(codeId);
-        if (code == null) throw Exception("Kod QR nie został znaleziony w systemie.");
-
-        if ((code.projectId != _activeWorkEntry!.projectId)||(!code.workTypeIds.contains(_activeWorkEntry!.workTypeId))) {
-          throw Exception("Zeskanowany kod QR pochodzi z innego projektu lub innego zadania. Akcja została anulowana.");
-        }
-
-        if (code.checkLocation == true) {
-          await _checkLocation(code);
-        }
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Kod QR zweryfikowany.'),
-            backgroundColor: Colors.green,
-          ));
-        }
-      }
-    } catch (e) {
-      if (mounted) showErrorDialog(context, 'Błąd Walidacji Kodu QR', e.toString());
-      return; // Przerwij zakańczanie pracy w przypadku błędu
-    }
-    // Koniec nowej logiki
-
     bool isMainTask = !workEntryToStop.workTypeIsBreak &&
         !workEntryToStop.workTypeIsSubTask &&
         !workEntryToStop.workTypeIsCheckPoint;
 
     if (isMainTask) {
       final requiredActions =
-      _availableNextActions.where((wt) => wt.isRequired).toList();
+          _availableNextActions.where((wt) => wt.isRequired).toList();
       final allRequiredCompleted = requiredActions
           .every((action) => _completedSubTaskIds.contains(action.workTypeId));
       if (!allRequiredCompleted) {
@@ -289,8 +238,8 @@ class _HomeScreenState extends State<HomeScreen>
 
     try {
       List<Information> infoList =
-      await informationService.getInformationByIdsShowOnStop(
-          workEntryToStop.workTypeInformationIds);
+          await informationService.getInformationByIdsShowOnStop(
+              workEntryToStop.workTypeInformationIds);
       List<Information>? infoListToWrite;
       if (infoList.isNotEmpty && mounted) {
         infoListToWrite = await processInformationListWithDialogs(
@@ -314,10 +263,10 @@ class _HomeScreenState extends State<HomeScreen>
         isRequired: workEntryToStop.workTypeIsRequired,
         isMain: workEntryToStop.workTypeIsMain,
         defaultDuration:
-        workEntryToStop.workTypeDefaultDurationInSeconds != null
-            ? Duration(
-            seconds: workEntryToStop.workTypeDefaultDurationInSeconds!)
-            : null,
+            workEntryToStop.workTypeDefaultDurationInSeconds != null
+                ? Duration(
+                    seconds: workEntryToStop.workTypeDefaultDurationInSeconds!)
+                : null,
         informationIds: workEntryToStop.workTypeInformationIds,
       );
 
@@ -352,45 +301,6 @@ class _HomeScreenState extends State<HomeScreen>
     if (_activeWorkEntry == null || !mounted) return;
     final currentUser = userAuthService.currentUser;
     if (currentUser == null) return;
-    if (selectedNextWorkType.requiresQrScan == true) {
-      if (!mounted) return;
-
-      final rawValue = await Navigator.push<String>(
-          context,
-          MaterialPageRoute(
-              fullscreenDialog: true,
-              builder: (context) => const QrScannerScreen()));
-
-      if (rawValue == null) return;
-
-      try {
-        final Map<String, dynamic> decodedData = jsonDecode(rawValue);
-        final String? codeId = decodedData['i'];
-        if (codeId == null) throw Exception("Nieprawidłowy format kodu.");
-
-        final code = await codeQrService.getCodeQrById(codeId);
-        if (code == null) throw Exception("Kod QR nie został znaleziony w systemie.");
-
-        if ((code.projectId != _activeWorkEntry!.projectId)||(!code.workTypeIds.contains(_activeWorkEntry!.workTypeId))) {
-          throw Exception("Zeskanowany kod QR pochodzi z innego projektu lub innego zadania. Akcja została anulowana.");
-        }
-
-        if (code.checkLocation == true) {
-          await _checkLocation(code);
-        }
-
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Kod QR zweryfikowany pomyślnie.'),
-            backgroundColor: Colors.green,
-          ));
-        }
-      } catch (e) {
-        if (mounted) showErrorDialog(context, 'Błąd Walidacji Kodu QR', e.toString());
-        return;
-      }
-    }
 
     setState(() => _isLoadingWorkEntry = true);
     try {
@@ -434,13 +344,12 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _startCountdownTimer(WorkEntry activeEvent) {
-    // ... bez zmian
     _stopCountdownTimer();
     if (activeEvent.workTypeDefaultDurationInSeconds != null &&
         activeEvent.workTypeDefaultDurationInSeconds! > 0) {
       final startTime = activeEvent.eventActionTimestamp.toDate();
       final totalDuration =
-      Duration(seconds: activeEvent.workTypeDefaultDurationInSeconds!);
+          Duration(seconds: activeEvent.workTypeDefaultDurationInSeconds!);
       final endTime = startTime.add(totalDuration);
 
       _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -474,7 +383,6 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _stopCountdownTimer() {
-    // ... bez zmian
     _countdownTimer?.cancel();
     _countdownTimer = null;
     if (_lastMinuteAnimationController?.isAnimating == true) {
@@ -483,7 +391,6 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   String _formatRemainingTime(Duration duration) {
-    // ... bez zmian
     String twoDigits(int n) => n.toString().padLeft(2, "0");
     String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
     String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
@@ -493,11 +400,9 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   String _formatEventTime(Timestamp timestamp) =>
-      // ... bez zmian
-  DateFormat('dd.MM.yyyy HH:mm', 'pl_PL').format(timestamp.toDate());
+      DateFormat('dd.MM.yyyy HH:mm', 'pl_PL').format(timestamp.toDate());
 
   Future<void> _navigateToScannerScreen() async {
-    // ... bez zmian
     if (!mounted) return;
     final rawValue = await Navigator.push<String>(
         context,
@@ -517,29 +422,23 @@ class _HomeScreenState extends State<HomeScreen>
       if (codeId == null) throw Exception("Nieprawidłowy format kodu QR.");
 
       final scannedCode = await codeQrService.getCodeQrById(codeId);
-      if (scannedCode == null) {
+      if (scannedCode == null)
         throw Exception("Kod QR nie został znaleziony w systemie.");
-      }
-
-      if (scannedCode.checkLocation == true) {
-        await _checkLocation(scannedCode);
-      }
 
       final userId = userService.uid;
       if (userId == null) throw Exception("Brak zalogowanego użytkownika.");
 
       final hasAccess = await membersService.hasAccessToArea(
-          ownerId: scannedCode.ownerId,
+        ownerId: scannedCode.ownerId,
           userId: userId,
           projectId: scannedCode.projectId,
           areaId: scannedCode.areaId);
       if (!hasAccess) throw Exception("Brak dostępu do projektu lub obszaru.");
 
       final workTypes =
-      await workTypeService.getWorkTypesByIds(scannedCode.workTypeIds);
-      if (workTypes.isEmpty) {
+          await workTypeService.getWorkTypesByIds(scannedCode.workTypeIds);
+      if (workTypes.isEmpty)
         throw Exception("Ten kod QR nie ma przypisanych zadań do rozpoczęcia.");
-      }
 
       if (!mounted) return;
 
@@ -555,39 +454,15 @@ class _HomeScreenState extends State<HomeScreen>
       }
     } catch (e) {
       if (mounted) {
-        showErrorDialog(context, 'Błąd Walidacji Kodu QR', e.toString());
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Błąd skanowania: ${e.toString()}'),
+            backgroundColor: Colors.red));
         setState(() => _isLoadingWorkEntry = false);
       }
     }
   }
 
-  Future<void> _checkLocation(CodeQr scannedCode) async {
-    if (scannedCode.location == null || scannedCode.maxDistanceInMeters == null) {
-      throw Exception("Kod QR wymaga weryfikacji lokalizacji, ale nie ma zapisanych współrzędnych.");
-    }
-
-    final currentPosition = await LocationService.determinePosition();
-
-    final distance = Geolocator.distanceBetween(
-      currentPosition.latitude,
-      currentPosition.longitude,
-      scannedCode.location!.latitude,
-      scannedCode.location!.longitude,
-    );
-
-    if (distance > scannedCode.maxDistanceInMeters!) {
-      throw Exception("Jesteś zbyt daleko od lokalizacji przypisanej do tego kodu QR. Odległość: ${distance.round()} m, dozwolona: ${scannedCode.maxDistanceInMeters} m.");
-    }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Lokalizacja zweryfikowana pomyślnie.'),
-        backgroundColor: Colors.green,
-      ));
-    }
-  }
-
   Future<void> _startWork() async {
-    // ... bez zmian
     final userId = userService.uid;
     if (userId == null) {
       if (mounted)
@@ -595,6 +470,7 @@ class _HomeScreenState extends State<HomeScreen>
             context, 'Błąd', 'Użytkownik nie jest zalogowany.');
       return;
     }
+    print('Pobieram projekty dla użytkownika $userId');
     final projects = await membersService.getAllProjectsForUserAcrossCompanies(userId);
     if (projects.isEmpty) {
       if (mounted)
@@ -608,6 +484,7 @@ class _HomeScreenState extends State<HomeScreen>
         context: context,
         builder: (ctx) => ProjectSelectionDialog(projectIds: projectIds));
     if (selectedProject == null || !mounted) return;
+    print('Wybrano projekt ${selectedProject.toMap()}');
     final areaIds = await membersService.getAreaIdsForUserInProject(
         ownerId: selectedProject.ownerId,
         userId: userId,
@@ -626,9 +503,9 @@ class _HomeScreenState extends State<HomeScreen>
     if (selectedArea == null || !mounted) return;
 
     final workTypes =
-    await workTypeService.getWorkTypesByIds(selectedArea.workTypesIds);
+        await workTypeService.getWorkTypesByIds(selectedArea.workTypesIds);
     final startableWorkTypes =
-    workTypes.where((wt) => wt.isMain).map((wt) => wt.workTypeId).toList();
+        workTypes.where((wt) => wt.isMain).map((wt) => wt.workTypeId).toList();
     if (startableWorkTypes.isEmpty) {
       if (mounted)
         await showAlertDialog(context, 'Brak zadań',
@@ -650,20 +527,19 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Cała metoda `build` i jej metody pomocnicze pozostają bez zmian
     final theme = Theme.of(context);
     return Scaffold(
       key: _scaffoldKey,
       appBar: AppBar(
         title: Row(children: [
           Container(
-              color: Colors.white,
+            color: Colors.white,
               child: SizedBox(
                   height: 36,
                   width: 36,
                   child: Image.asset('icons/Icon-192.png',
                       errorBuilder: (c, e, s) =>
-                      const Icon(Icons.business_center_outlined)))),
+                          const Icon(Icons.business_center_outlined)))),
           const SizedBox(width: 12),
           Text('Rejestracja Czasu Pracy',
               style: theme.textTheme.titleLarge?.copyWith(
@@ -681,130 +557,130 @@ class _HomeScreenState extends State<HomeScreen>
       ),
       endDrawer: Drawer(
           child: ListView(padding: EdgeInsets.zero, children: <Widget>[
-            DrawerHeader(
-                decoration: BoxDecoration(color: theme.colorScheme.primary),
-                child:
+        DrawerHeader(
+            decoration: BoxDecoration(color: theme.colorScheme.primary),
+            child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Container(
-                    color: Colors.white,
-                    child: SizedBox(
-                        height: 60,
-                        width: 60,
-                        child: Image.asset('icons/Icon-192.png',
-                            errorBuilder: (c, e, s) => Icon(
-                                Icons.business_center_rounded,
-                                size: 50,
-                                color: theme.colorScheme.onPrimary))),
-                  ),
-                  const SizedBox(height: 8),
-                  Text('Menu Główne',
-                      style: theme.textTheme.headlineSmall
-                          ?.copyWith(color: theme.colorScheme.onPrimary)),
-                  if (userAuthService.currentUser?.email != null)
-                    Text(userAuthService.currentUser!.email!,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onPrimary.withOpacity(0.8)))
-                ])),
-            ListTile(
-                leading: const Icon(Icons.manage_accounts_outlined),
-                title: const Text('Konto użytkownika'),
-                onTap: () {
-                  Navigator.pop(context);
-                  context.go('/edit-user');
-                }),
-            ListTile(
-                leading: const Icon(Icons.calendar_month_outlined),
-                title: const Text('Historia'),
-                onTap: () {
-                  Navigator.pop(context);
-                  context.go('/user-history-menu');
-                }),
-            const Divider(),
-            ListTile(
-                leading: const Icon(Icons.account_balance),
-                title: const Text('Administracja'),
-                onTap: () {
-                  Navigator.pop(context);
-                  context.go('/administration-menu');
-                }),
-            const Divider(),
-            ListTile(
-                leading: const Icon(Icons.info_outline),
-                title: const Text('O aplikacji'),
-                onTap: () {
-                  Navigator.pop(context);
-                  context.go('/about');
-                }),
-            ListTile(
-                leading: Icon(Icons.logout, color: theme.colorScheme.error),
-                title: Text('Wyloguj się',
-                    style: TextStyle(color: theme.colorScheme.error)),
-                onTap: () async {
-                  Navigator.pop(context);
-                  await userAuthService.signOut();
-                  if (mounted) context.go('/auth');
-                })
-          ])),
+              Container(
+                color: Colors.white,
+                child: SizedBox(
+                    height: 60,
+                    width: 60,
+                    child: Image.asset('icons/Icon-192.png',
+                        errorBuilder: (c, e, s) => Icon(
+                            Icons.business_center_rounded,
+                            size: 50,
+                            color: theme.colorScheme.onPrimary))),
+              ),
+              const SizedBox(height: 8),
+              Text('Menu Główne',
+                  style: theme.textTheme.headlineSmall
+                      ?.copyWith(color: theme.colorScheme.onPrimary)),
+              if (userAuthService.currentUser?.email != null)
+                Text(userAuthService.currentUser!.email!,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onPrimary.withOpacity(0.8)))
+            ])),
+        ListTile(
+            leading: const Icon(Icons.manage_accounts_outlined),
+            title: const Text('Konto użytkownika'),
+            onTap: () {
+              Navigator.pop(context);
+              context.go('/edit-user');
+            }),
+        ListTile(
+            leading: const Icon(Icons.calendar_month_outlined),
+            title: const Text('Historia'),
+            onTap: () {
+              Navigator.pop(context);
+              context.go('/user-history-menu');
+            }),
+        const Divider(),
+        ListTile(
+            leading: const Icon(Icons.account_balance),
+            title: const Text('Administracja'),
+            onTap: () {
+              Navigator.pop(context);
+              context.go('/administration-menu');
+            }),
+        const Divider(),
+        ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text('O aplikacji'),
+            onTap: () {
+              Navigator.pop(context);
+              context.go('/about');
+            }),
+        ListTile(
+            leading: Icon(Icons.logout, color: theme.colorScheme.error),
+            title: Text('Wyloguj się',
+                style: TextStyle(color: theme.colorScheme.error)),
+            onTap: () async {
+              Navigator.pop(context);
+              await userAuthService.signOut();
+              if (mounted) context.go('/auth');
+            })
+      ])),
       body: Stack(
         fit: StackFit.expand,
         children: [
           Container(
             decoration: BoxDecoration(
                 gradient: LinearGradient(colors: [
-                  theme.colorScheme.primaryContainer.withOpacity(0.3),
-                  theme.colorScheme.surfaceVariant.withOpacity(0.3)
-                ], begin: Alignment.topLeft, end: Alignment.bottomRight)),
+              theme.colorScheme.primaryContainer.withOpacity(0.3),
+              theme.colorScheme.surfaceVariant.withOpacity(0.3)
+            ], begin: Alignment.topLeft, end: Alignment.bottomRight)),
           ),
           Center(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
               child: _isLoadingWorkEntry
                   ? Card(
-                  elevation: 4,
-                  child: Padding(
-                      padding: const EdgeInsets.all(32.0),
-                      child:
-                      Column(mainAxisSize: MainAxisSize.min, children: [
-                        CircularProgressIndicator(
-                            color: theme.colorScheme.primary),
-                        const SizedBox(height: 16),
-                        Text("Sprawdzanie statusu pracy...",
-                            style: theme.textTheme.titleMedium)
-                      ])))
-                  : _loadError != null
-                  ? Card(
-                  color: theme.colorScheme.errorContainer,
-                  child: Padding(
-                      padding: const EdgeInsets.all(24.0),
-                      child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.error_outline_rounded,
-                                color:
-                                theme.colorScheme.onErrorContainer,
-                                size: 40),
-                            const SizedBox(height: 12),
-                            Text("Wystąpił błąd",
-                                style: theme.textTheme.titleLarge
-                                    ?.copyWith(
-                                    color: theme.colorScheme
-                                        .onErrorContainer)),
-                            const SizedBox(height: 8),
-                            Text(_loadError!,
-                                style: theme.textTheme.bodyMedium
-                                    ?.copyWith(
-                                    color: theme.colorScheme
-                                        .onErrorContainer),
-                                textAlign: TextAlign.center),
-                            const SizedBox(height: 20),
-                            ElevatedButton.icon(
-                                icon: const Icon(Icons.refresh_rounded),
-                                label: const Text("Spróbuj ponownie"),
-                                onPressed: _loadActiveWorkEvent)
+                      elevation: 4,
+                      child: Padding(
+                          padding: const EdgeInsets.all(32.0),
+                          child:
+                              Column(mainAxisSize: MainAxisSize.min, children: [
+                            CircularProgressIndicator(
+                                color: theme.colorScheme.primary),
+                            const SizedBox(height: 16),
+                            Text("Sprawdzanie statusu pracy...",
+                                style: theme.textTheme.titleMedium)
                           ])))
-                  : _activeWorkEntry != null
-                  ? _buildActiveWorkUI(theme, _activeWorkEntry!)
-                  : _buildStartWorkCard(theme),
+                  : _loadError != null
+                      ? Card(
+                          color: theme.colorScheme.errorContainer,
+                          child: Padding(
+                              padding: const EdgeInsets.all(24.0),
+                              child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.error_outline_rounded,
+                                        color:
+                                            theme.colorScheme.onErrorContainer,
+                                        size: 40),
+                                    const SizedBox(height: 12),
+                                    Text("Wystąpił błąd",
+                                        style: theme.textTheme.titleLarge
+                                            ?.copyWith(
+                                                color: theme.colorScheme
+                                                    .onErrorContainer)),
+                                    const SizedBox(height: 8),
+                                    Text(_loadError!,
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(
+                                                color: theme.colorScheme
+                                                    .onErrorContainer),
+                                        textAlign: TextAlign.center),
+                                    const SizedBox(height: 20),
+                                    ElevatedButton.icon(
+                                        icon: const Icon(Icons.refresh_rounded),
+                                        label: const Text("Spróbuj ponownie"),
+                                        onPressed: _loadActiveWorkEvent)
+                                  ])))
+                      : _activeWorkEntry != null
+                          ? _buildActiveWorkUI(theme, _activeWorkEntry!)
+                          : _buildStartWorkCard(theme),
             ),
           ),
         ],
@@ -841,7 +717,7 @@ class _HomeScreenState extends State<HomeScreen>
               label: const Text('Rozpocznij pracę'),
               style: ElevatedButton.styleFrom(
                   padding:
-                  const EdgeInsets.symmetric(horizontal: 32, vertical: 16)),
+                      const EdgeInsets.symmetric(horizontal: 32, vertical: 16)),
               onPressed: _startWork),
           const SizedBox(height: 16),
           OutlinedButton.icon(
@@ -849,7 +725,7 @@ class _HomeScreenState extends State<HomeScreen>
               label: const Text('Zeskanuj kod QR'),
               style: OutlinedButton.styleFrom(
                   padding:
-                  const EdgeInsets.symmetric(horizontal: 24, vertical: 12)),
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 12)),
               onPressed: _navigateToScannerScreen),
         ]),
       ),
@@ -866,8 +742,8 @@ class _HomeScreenState extends State<HomeScreen>
         fontWeight: FontWeight.bold,
         color: _isLastMinute
             ? (_showLastMinuteText
-            ? theme.colorScheme.error
-            : theme.colorScheme.error.withOpacity(0.3))
+                ? theme.colorScheme.error
+                : theme.colorScheme.error.withOpacity(0.3))
             : theme.colorScheme.secondary);
     return Card(
       elevation: 8.0,
@@ -940,20 +816,20 @@ class _HomeScreenState extends State<HomeScreen>
                 _buildSectionTitle(theme.textTheme, "Dostępne Następne Akcje:"),
                 _isLoadingNextActions
                     ? const Center(
-                    child: Padding(
-                        padding: EdgeInsets.symmetric(vertical: 12.0),
-                        child: CircularProgressIndicator()))
+                        child: Padding(
+                            padding: EdgeInsets.symmetric(vertical: 12.0),
+                            child: CircularProgressIndicator()))
                     : _availableNextActions.isEmpty
-                    ? const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 10.0),
-                    child: Text(
-                        "Brak zdefiniowanych podzadań lub przerw dla tego zadania.",
-                        textAlign: TextAlign.center))
-                    : Column(
-                    children: _availableNextActions
-                        .map((workType) =>
-                        _buildNextActionCard(theme, workType))
-                        .toList()),
+                        ? const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 10.0),
+                            child: Text(
+                                "Brak zdefiniowanych podzadań lub przerw dla tego zadania.",
+                                textAlign: TextAlign.center))
+                        : Column(
+                            children: _availableNextActions
+                                .map((workType) =>
+                                    _buildNextActionCard(theme, workType))
+                                .toList()),
               ]
             ],
           ),
@@ -967,13 +843,13 @@ class _HomeScreenState extends State<HomeScreen>
     IconData icon = workType.isBreak
         ? Icons.free_breakfast_outlined
         : workType.isSubTask
-        ? Icons.low_priority_rounded
-        : Icons.flag_outlined;
+            ? Icons.low_priority_rounded
+            : Icons.flag_outlined;
     Color color = workType.isBreak
         ? Colors.orange.shade700
         : workType.isSubTask
-        ? Colors.teal.shade600
-        : Colors.blue.shade600;
+            ? Colors.teal.shade600
+            : Colors.blue.shade600;
 
     return Card(
       elevation: 2.0,
@@ -988,20 +864,20 @@ class _HomeScreenState extends State<HomeScreen>
                 ?.copyWith(fontWeight: FontWeight.w500)),
         subtitle: workType.description.isNotEmpty
             ? Text(workType.description,
-            maxLines: 1, overflow: TextOverflow.ellipsis)
+                maxLines: 1, overflow: TextOverflow.ellipsis)
             : null,
         trailing: isCompleted
             ? Icon(Icons.check_circle_rounded,
-            color: Colors.green.shade600, semanticLabel: 'Wykonano')
+                color: Colors.green.shade600, semanticLabel: 'Wykonano')
             : workType.isRequired
-            ? Icon(Icons.warning_amber_rounded,
-            color: theme.colorScheme.error, semanticLabel: 'Wymagane')
-            : Icon(Icons.arrow_forward_ios_rounded, size: 16, color: color),
+                ? Icon(Icons.warning_amber_rounded,
+                    color: theme.colorScheme.error, semanticLabel: 'Wymagane')
+                : Icon(Icons.arrow_forward_ios_rounded, size: 16, color: color),
         onTap: isCompleted
             ? null
             : () {
-          _startBreakOrSubTask(workType, Timestamp.now());
-        },
+                _startBreakOrSubTask(workType, Timestamp.now());
+              },
       ),
     );
   }

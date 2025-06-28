@@ -35,24 +35,11 @@ class UserHistoryMenuScreen extends StatelessWidget {
                 margin: const EdgeInsets.symmetric(vertical: 8.0),
                 child: ListTile(
                   leading: const Icon(Icons.work_history_outlined),
-                  title: const Text('Historia mojej pracy'),
-                  subtitle: const Text('Przeglądaj swoje zarejestrowane wpisy'),
-                  trailing: const Icon(Icons.arrow_forward_ios),
-                  onTap: () {
-                    context.push('/user-work-history');
-                  },
-                ),
-              ),
-              Card(
-                elevation: 4,
-                margin: const EdgeInsets.symmetric(vertical: 8.0),
-                child: ListTile(
-                  leading: const Icon(Icons.work_history_outlined),
                   title: const Text('Szczegółowa histori zadań'),
-                  subtitle: const Text('Przeglądaj szczegółowe informacje o swoim zadaniu'),
+                  subtitle: const Text('Przeglądaj szczegółową historię zadań'),
                   trailing: const Icon(Icons.arrow_forward_ios),
                   onTap: () {
-                    context.push('/user-info-history');
+                    context.push('/user-history');
                   },
                 ),
               ),

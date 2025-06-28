@@ -17,6 +17,16 @@ class LicenseService {
     }
   }
 
+  Future<License?> getLicenseForOwner(String ownerId) async {
+    try {
+      return await _licenseRepository.getLicenseForOwner(ownerId);
+    } on LicenseFetchException {
+      rethrow;
+    } catch (e) {
+      throw LicenseFetchException('Wystąpił nieznany błąd podczas pobierania licencji dla projektu: $e');
+    }
+  }
+
   Future<License?> getLicenseForProject(String projectId) async {
     try {
       return await _licenseRepository.getLicenseForProject(projectId);

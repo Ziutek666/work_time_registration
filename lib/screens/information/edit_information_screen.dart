@@ -1,25 +1,10 @@
-// lib/features/information/presentation/screens/edit_information_screen.dart
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-
 import '../../models/information.dart';
-import '../../models/user_app.dart'; // Założenie: ten model istnieje i jest używany
 import '../../services/information_service.dart';
-import '../../services/user_service.dart'; // Założenie: userService jest dostępne
 import '../../../widgets/dialogs.dart';
-
-import 'package:collection/collection.dart';
-import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:work_time_registration/models/information_category.dart';
-
-import '../../models/information.dart';
 import '../../services/information_category_service.dart';
-import '../../services/information_service.dart';
-import '../../widgets/dialogs.dart';
-import '../../repositories/information_category_repository.dart';
-import '../../repositories/information_repository.dart';
 
 class EditInformationScreen extends StatefulWidget {
   final Information information;

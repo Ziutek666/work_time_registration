@@ -4,9 +4,14 @@ import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
 import 'dart:typed_data';
 import 'package:flutter/services.dart' show rootBundle;
+// Importy dla PDF (pozostają dla drukowania pojedynczej sesji)
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+// NOWE IMPORTY DLA EKSPORTU DO EXCELA
+import 'package:excel/excel.dart' as exe;
+import 'package:file_saver/file_saver.dart';
+
 
 // Dostosuj ścieżki do swoich modeli i serwisów
 import '../../models/work_entry.dart';
@@ -14,18 +19,20 @@ import '../../models/project.dart';
 import '../../models/area.dart';
 import '../../models/user_app.dart';
 import '../../models/information.dart';
-import '../../services/project_member_service.dart';
+import '../../services/members_service.dart';
 import '../../services/work_entry_service.dart';
 import '../../services/project_service.dart';
 import '../../services/area_service.dart';
 import '../../services/user_service.dart';
+import '../../services/information_category_service.dart';
+import '../../models/information_category.dart';
+import '../../widgets/dialogs.dart';
 
-/// Reprezentuje pojedynczą sesję pracy, od startu do stopu,
-/// wraz ze wszystkimi zdarzeniami, które wystąpiły w jej trakcie.
+/// Reprezentuje pojedynczą sesję pracy lub zdarzenie typu CheckPoint.
 class WorkSession {
   final WorkEntry startEntry;
-  final WorkEntry? endEntry; // Może być null, jeśli sesja jest w toku
-  final List<WorkEntry> allEventsInSession; // Wszystkie zdarzenia, w tym start/stop
+  final WorkEntry? endEntry;
+  final List<WorkEntry> allEventsInSession;
 
   WorkSession({
     required this.startEntry,
@@ -33,13 +40,12 @@ class WorkSession {
     required this.allEventsInSession,
   });
 
-  // Getter określający, czy sesja została zakończona
   bool get isFinished => endEntry != null;
+  bool get isCheckPointEvent => startEntry.workTypeIsCheckPoint;
 
-  // Getter do obliczania czasu trwania sesji
   Duration get duration {
+    if (isCheckPointEvent) return Duration.zero;
     if (!isFinished) {
-      // Jeśli sesja jest w toku, licz czas do teraz
       return DateTime.now().difference(startEntry.eventActionTimestamp.toDate());
     }
     return endEntry!.eventActionTimestamp
@@ -47,29 +53,30 @@ class WorkSession {
         .difference(startEntry.eventActionTimestamp.toDate());
   }
 
-  // Getter zwracający nazwę typu pracy
   String get workTypeName => startEntry.workTypeName;
 }
 
 
-class AdminInfoHistoryScreen extends StatefulWidget {
-  const AdminInfoHistoryScreen({super.key});
+class AdminHistoryScreen extends StatefulWidget {
+  const AdminHistoryScreen({super.key});
 
   @override
-  State<AdminInfoHistoryScreen> createState() => _AdminInfoHistoryScreenState();
+  State<AdminHistoryScreen> createState() => _AdminHistoryScreenState();
 }
 
-class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
+class _AdminHistoryScreenState extends State<AdminHistoryScreen> {
   // Stan UI
   bool _isLoading = true;
   String? _errorMessage;
   bool _isFilterPanelExpanded = true;
   UserApp? _currentUser;
 
-  // NOWA STRUKTURA DANYCH: Przechowujemy pogrupowane SESJE pracy
+  // Struktura danych
   Map<String, Map<String, Map<String, List<WorkSession>>>>
   _groupedSessionsByEmployee = {};
   List<WorkEntry> _allWorkEntries = [];
+  Map<String, InformationCategory> _allCategories = {};
+
 
   // Filtry
   DateTimeRange? _selectedDateRange;
@@ -90,7 +97,8 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
   Map<String, String> _projectNamesMap = {};
   Map<String, String> _areaNamesMap = {};
 
-  final DateFormat _dateFormat = DateFormat('dd.MM.yyyy', 'pl_PL');
+  final DateFormat _dateFormat = DateFormat('dd.MM.yyyy HH:mm:ss',
+      'pl_PL'); // Zmieniono format na bardziej uniwersalny dla eksportu
   final DateFormat _timeFormat = DateFormat('HH:mm:ss');
 
   @override
@@ -99,6 +107,7 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     _initializeScreen();
   }
 
+  // Cała logika ładowania i przetwarzania danych pozostaje bez zmian
   Future<void> _initializeScreen() async {
     setState(() {
       _isLoading = true;
@@ -124,22 +133,24 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     if (_currentUser == null) {
       throw Exception("Brak uwierzytelnionego administratora.");
     }
-    final allProjects = await projectService.getProjectsByOwner(_currentUser!.uid!);
+    var ownerId = _currentUser!.uid!;
+    final allProjects = await projectService.getProjectsByOwner(
+        _currentUser!.uid!);
     if (allProjects.isEmpty) {
       if (mounted) setState(() => _availableUsers = []);
       return;
     }
-    final allMembers = await projectMemberService
-        .getMembersForAllProjects(allProjects.map((p) => p.projectId).toList());
+    final allMembers = await membersService.getMembersByOwner(ownerId);
     final uniqueUserIds = allMembers.map((m) => m.userId).toSet().toList();
     if (uniqueUserIds.isEmpty) {
       if (mounted) setState(() => _availableUsers = []);
       return;
     }
     _availableUsers = await userService.getUsersByIds(uniqueUserIds);
-    _availableUsers.sort((a, b) => (a.displayName ?? '')
-        .toLowerCase()
-        .compareTo((b.displayName ?? '').toLowerCase()));
+    _availableUsers.sort((a, b) =>
+        (a.displayName ?? '')
+            .toLowerCase()
+            .compareTo((b.displayName ?? '').toLowerCase()));
     _userNamesMap = {
       for (var user in _availableUsers)
         user.uid!: user.displayName ?? 'Użytkownik bez nazwy'
@@ -154,28 +165,29 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     });
     try {
       final futures = _availableUsers
-          .map((user) => workEntryService.getWorkEntriesForUserBetweenDates(
-        user.uid!,
-        _selectedDateRange!.start,
-        DateTime(_selectedDateRange!.end.year,
-            _selectedDateRange!.end.month, _selectedDateRange!.end.day + 1),
-      ))
+          .map((user) =>
+          workEntryService.getWorkEntriesForUserBetweenDates(
+            user.uid!,
+            _selectedDateRange!.start,
+            DateTime(_selectedDateRange!.end.year,
+                _selectedDateRange!.end.month, _selectedDateRange!.end.day + 1),
+          ))
           .toList();
       final results = await Future.wait(futures);
       _allWorkEntries = results.expand((list) => list).toList();
       await _ensureProjectAndAreaNamesAvailable(_allWorkEntries);
-      _applyFiltersAndGroup(); // Ta funkcja jest teraz przebudowana
+      _applyFiltersAndGroup();
     } catch (e) {
       if (mounted) {
         setState(
-                () => _errorMessage = "Błąd przetwarzania historii: ${e.toString()}");
+                () =>
+            _errorMessage = "Błąd przetwarzania historii: ${e.toString()}");
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // CAŁKOWICIE PRZEBUDOWANA METODA
   void _applyFiltersAndGroup() {
     List<WorkEntry> tempFiltered = List.from(_allWorkEntries);
     if (_selectedUser != null) {
@@ -195,8 +207,8 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
 
     _calculateSummaryDurations(tempFiltered);
 
-    // Sortujemy wszystkie wpisy chronologicznie - to kluczowe dla parowania
-    tempFiltered.sort((a, b) => a.eventActionTimestamp.compareTo(b.eventActionTimestamp));
+    tempFiltered.sort((a, b) =>
+        a.eventActionTimestamp.compareTo(b.eventActionTimestamp));
 
     _groupedSessionsByEmployee.clear();
     final groupedByEmployee = groupBy(tempFiltered, (entry) => entry.userId);
@@ -207,11 +219,11 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
       final projectMap = <String, Map<String, List<WorkSession>>>{};
 
       groupedByProject.forEach((projectId, entriesInProject) {
-        final groupedByArea = groupBy(entriesInProject, (entry) => entry.areaId);
+        final groupedByArea = groupBy(
+            entriesInProject, (entry) => entry.areaId);
         final areaMap = <String, List<WorkSession>>{};
 
         groupedByArea.forEach((areaId, entriesInArea) {
-          // Nowa funkcja parująca zdarzenia w sesje
           areaMap[areaId] = _pairEntriesIntoSessions(entriesInArea);
         });
         projectMap[projectId] = areaMap;
@@ -228,40 +240,42 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     if (mounted) setState(() {});
   }
 
-  // NOWA METODA POMOCNICZA DO PAROWANIA WPISÓW W SESJE
   List<WorkSession> _pairEntriesIntoSessions(List<WorkEntry> entries) {
     final List<WorkSession> sessions = [];
     WorkEntry? activeMainTaskStart;
     List<WorkEntry> eventsForCurrentSession = [];
 
     for (final entry in entries) {
-      final isMainTask = !entry.workTypeIsBreak && !entry.workTypeIsSubTask;
+      if (entry.workTypeIsCheckPoint) {
+        if (activeMainTaskStart != null) {
+          eventsForCurrentSession.add(entry);
+        } else {
+          sessions.add(
+              WorkSession(startEntry: entry, allEventsInSession: [entry]));
+        }
+        continue;
+      }
 
       if (activeMainTaskStart == null) {
-        // Szukamy rozpoczęcia nowego zadania głównego
-        if (entry.isStart && isMainTask) {
+        if (entry.isStart && entry.workTypeIsMain) {
           activeMainTaskStart = entry;
           eventsForCurrentSession.add(entry);
         }
       } else {
-        // Mamy aktywną sesję, dodajemy do niej wszystkie zdarzenia
         eventsForCurrentSession.add(entry);
-
-        // Sprawdzamy, czy obecne zdarzenie kończy aktywną sesję
-        if (!entry.isStart && isMainTask && entry.workTypeId == activeMainTaskStart.workTypeId) {
+        if (!entry.isStart && entry.workTypeIsMain &&
+            entry.workTypeId == activeMainTaskStart.workTypeId) {
           sessions.add(WorkSession(
             startEntry: activeMainTaskStart,
             endEntry: entry,
             allEventsInSession: List.from(eventsForCurrentSession),
           ));
-          // Resetujemy stan do szukania nowej sesji
           activeMainTaskStart = null;
           eventsForCurrentSession.clear();
         }
       }
     }
 
-    // Jeśli po pętli została niezakończona sesja, też ją dodajemy
     if (activeMainTaskStart != null) {
       sessions.add(WorkSession(
         startEntry: activeMainTaskStart,
@@ -269,8 +283,8 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
       ));
     }
 
-    // Sortujemy sesje od najnowszej do najstarszej dla lepszego wyglądu
-    sessions.sort((a, b) => b.startEntry.eventActionTimestamp.compareTo(a.startEntry.eventActionTimestamp));
+    sessions.sort((a, b) => b.startEntry.eventActionTimestamp.compareTo(
+        a.startEntry.eventActionTimestamp));
     return sessions;
   }
 
@@ -280,11 +294,14 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
 
     final sortedEntries = List<WorkEntry>.from(entries);
     sortedEntries
-        .sort((a, b) => a.eventActionTimestamp.compareTo(b.eventActionTimestamp));
+        .sort((a, b) =>
+        a.eventActionTimestamp.compareTo(b.eventActionTimestamp));
 
     for (var entry in sortedEntries) {
+      if (entry.workTypeIsCheckPoint) continue;
       String sessionKey =
-          '${entry.userId}_${entry.projectId}_${entry.areaId}_${entry.workTypeId}';
+          '${entry.userId}_${entry.projectId}_${entry.areaId}_${entry
+          .workTypeId}';
       if (entry.isStart) {
         openSessions[sessionKey] = entry;
       } else {
@@ -357,7 +374,8 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     try {
       _availableProjectsForFilter =
       await projectService.fetchProjectsByIds(projectIds);
-      _availableProjectsForFilter = _availableProjectsForFilter.toSet().toList(); // Usuwanie duplikatów
+      _availableProjectsForFilter =
+          _availableProjectsForFilter.toSet().toList();
       _availableProjectsForFilter
           .sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     } catch (e) {
@@ -371,9 +389,10 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
       final allAreas = await areaService.getAreasByProject(projectId);
       if (mounted) {
         setState(() {
-          _availableAreasForFilter = allAreas.toSet().toList(); // Usuwanie duplikatów
+          _availableAreasForFilter = allAreas.toSet().toList();
           _availableAreasForFilter
-              .sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+              .sort((a, b) =>
+              a.name.toLowerCase().compareTo(b.name.toLowerCase()));
         });
       }
     } catch (e) {
@@ -457,6 +476,324 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     return DateTimeRange(start: DateTime(now.year, now.month, 1), end: now);
   }
 
+  // ZMODYFIKOWANA FUNKCJA - EKSPORT DO EXCELA
+  Future<void> _exportToExcel() async {
+    setState(() => _isLoading = true);
+
+    try {
+      var excel = exe.Excel.createExcel();
+      // POPRAWKA: Usuń domyślny arkusz i utwórz własny.
+      excel.delete('Sheet1');
+      exe.Sheet sheetObject = excel['Historia Pracy'];
+
+      exe.CellStyle headerStyle = exe.CellStyle(
+        bold: true,
+        backgroundColorHex: "#FFDDDDDD".excelColor,
+        // Jaśniejszy szary
+        verticalAlign: exe.VerticalAlign.Center,
+        horizontalAlign: exe.HorizontalAlign.Center,
+        textWrapping: exe.TextWrapping.WrapText,
+      );
+
+      List<exe.TextCellValue> headers = [
+        exe.TextCellValue('Pracownik'),
+        exe.TextCellValue('Data i Godzina'),
+        exe.TextCellValue('Zdarzenie (Start/Stop)'),
+        exe.TextCellValue('Projekt'),
+        exe.TextCellValue('Obszar'),
+        exe.TextCellValue('Nazwa Zadania'),
+        exe.TextCellValue('Opis'),
+      ];
+
+      sheetObject.appendRow(headers);
+      // Zastosuj styl do nagłówków
+      for (var i = 0; i < headers.length; i++) {
+        var cell = sheetObject.cell(
+            exe.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0));
+        cell.cellStyle = headerStyle;
+      }
+
+      // Przygotowanie przefiltrowanych danych
+      List<WorkEntry> tempFiltered = List.from(_allWorkEntries);
+      if (_selectedUser != null) tempFiltered.removeWhere((e) =>
+      e.userId != _selectedUser!.uid);
+      if (_selectedFilterProject != null) tempFiltered.removeWhere((e) =>
+      e.projectId != _selectedFilterProject!.projectId);
+      if (_selectedFilterArea != null) tempFiltered.removeWhere((e) =>
+      e.areaId != _selectedFilterArea!.areaId);
+
+      tempFiltered.sort((a, b) =>
+          a.eventActionTimestamp.compareTo(b.eventActionTimestamp));
+
+      for (final entry in tempFiltered) {
+        final userName = _userNamesMap[entry.userId] ?? entry.userId;
+        final eventDateTime = _dateFormat.format(
+            entry.eventActionTimestamp.toDate());
+        final eventType = entry.isStart ? 'Start' : 'Stop';
+        final projectName = _projectNamesMap[entry.projectId] ??
+            entry.projectId;
+        final areaName = _areaNamesMap[entry.areaId] ?? entry.areaId;
+
+        List<exe.CellValue> row = [
+          exe.TextCellValue(userName),
+          exe.TextCellValue(eventDateTime),
+          exe.TextCellValue(eventType),
+          exe.TextCellValue(projectName),
+          exe.TextCellValue(areaName),
+          exe.TextCellValue(entry.workTypeName),
+          exe.TextCellValue(entry.description ?? ''),
+        ];
+        sheetObject.appendRow(row);
+      }
+
+      for (var i = 0; i < headers.length; i++) {
+        //sheetObject.setColAutoFit(i);
+      }
+
+      // POPRAWKA: Zapisz bajty bez nazwy pliku i użyj FileSaver.
+      String fileName = "raport_historii_pracy_${DateFormat('yyyyMMdd_HHmm')
+          .format(DateTime.now())}.xlsx";
+      var fileBytes = excel.save(fileName: fileName);
+
+    } catch (e) {
+      if (mounted) {
+        await showErrorDialog(context, "Błąd Eksportu",
+            "Nie udało się wygenerować pliku Excel: $e");
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // --- Funkcje generowania PDF (pozostają bez zmian) ---
+
+  Future<pw.Font> _loadFont(String path) async {
+    final fontData = await rootBundle.load(path);
+    return pw.Font.ttf(fontData.buffer.asByteData());
+  }
+
+  Future<void> _generatePdfForSession(WorkSession session) async {
+    setState(() => _isLoading = true);
+    final ttfRegular = await _loadFont("assets/fonts/Roboto-Regular.ttf");
+    final ttfBold = await _loadFont("assets/fonts/Roboto-Bold.ttf");
+    final pdfTheme = pw.ThemeData.withFont(base: ttfRegular, bold: ttfBold);
+    final pdf = pw.Document(theme: pdfTheme);
+
+    final userName = _userNamesMap[session.startEntry.userId] ??
+        'Brak nazwy użytkownika';
+    final projectName = _projectNamesMap[session.startEntry.projectId] ??
+        'Nie przypisano projektu';
+    final areaName = _areaNamesMap[session.startEntry.areaId] ??
+        'Nie przypisano obszaru';
+    final sessionDate = DateFormat('dd.MM.yyyy').format(
+        session.startEntry.eventActionTimestamp.toDate());
+    final totalTime = _formatDurationHHMMSS(session.duration);
+
+    pdf.addPage(pw.Page(
+      pageFormat: PdfPageFormat.a4,
+      build: (context) =>
+          pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+            pw.Text('Karta Pracy', style: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold, fontSize: 24)),
+            pw.SizedBox(height: 20),
+            pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        _buildPdfInfoRow('Pracownik:', userName),
+                        _buildPdfInfoRow('Projekt:', projectName),
+                        _buildPdfInfoRow('Obszar:', areaName),
+                      ]),
+                  pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        _buildPdfInfoRow('Data:', sessionDate),
+                        _buildPdfInfoRow(
+                            'Łączny czas pracy:', totalTime, isBold: true),
+                      ]),
+                ]),
+            pw.Divider(height: 30, thickness: 1.5),
+            _buildPdfSessionBlock(session),
+            pw.Spacer(),
+            pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceAround, children: [
+              pw.Column(children: [
+                pw.Container(width: 150, child: pw.Divider()),
+                pw.SizedBox(height: 4),
+                pw.Text('Podpis pracownika')
+              ]),
+              pw.Column(children: [
+                pw.Container(width: 150, child: pw.Divider()),
+                pw.SizedBox(height: 4),
+                pw.Text('Podpis przełożonego')
+              ])
+            ]),
+            pw.SizedBox(height: 20),
+          ]),
+    ));
+    await Printing.layoutPdf(onLayout: (format) async => pdf.save(),
+        name: 'karta_pracy_${userName.replaceAll(' ', '_')}_${session
+            .workTypeName.replaceAll(' ', '_')}.pdf');
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  pw.Widget _buildPdfInfoRow(String label, String value,
+      {bool isBold = false}) {
+    return pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(vertical: 2),
+        child: pw.Row(children: [
+          pw.Text(label, style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(width: 8),
+          pw.Text(value, style: isBold
+              ? pw.TextStyle(fontWeight: pw.FontWeight.bold)
+              : const pw.TextStyle()),
+        ]));
+  }
+
+
+  pw.Widget _buildPdfHeader(String reportName, String dateRange) {
+    return pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+      pw.Text('Raport Akcji i Informacji',
+          style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 22)),
+      pw.SizedBox(height: 5),
+      pw.Text('Dla: $reportName'),
+      pw.Text('Okres: $dateRange'),
+      pw.Divider(height: 20, thickness: 1.5)
+    ]);
+  }
+
+  pw.Widget _buildPdfFooter(pw.Context context) {
+    return pw.Container(
+        alignment: pw.Alignment.centerRight,
+        margin: const pw.EdgeInsets.only(top: 10),
+        child: pw.Text('Strona ${context.pageNumber} z ${context.pagesCount}',
+            style: const pw.TextStyle(color: PdfColors.grey, fontSize: 8)));
+  }
+
+  pw.Widget _buildPdfSummaryTable() {
+    return pw.Table.fromTextArray(
+        headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+        headers: ['Typ Czasu', 'Suma'],
+        data: [
+          ['Praca główna', _formatDurationHHMMSS(_totalMainWorkDuration)],
+          ['Podzadania', _formatDurationHHMMSS(_totalSubtaskDuration)],
+          ['Przerwy', _formatDurationHHMMSS(_totalBreakDuration)],
+        ]);
+  }
+
+  pw.Widget _buildPdfSessionBlock(WorkSession session) {
+    return pw.Container(
+        padding: const pw.EdgeInsets.all(8),
+        margin: const pw.EdgeInsets.only(bottom: 10),
+        decoration: pw.BoxDecoration(
+            border: pw.Border.all(color: PdfColors.grey300),
+            borderRadius: pw.BorderRadius.circular(4)),
+        child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(session.workTypeName, style: pw.TextStyle(
+                  fontWeight: pw.FontWeight.bold, fontSize: 12)),
+              pw.SizedBox(height: 5),
+              if(!session.isCheckPointEvent)
+                pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text('Czas trwania: ${_formatDurationHHMMSS(
+                          session.duration)}'),
+                      pw.Text(session.isFinished ? 'Zakończona' : 'W toku',
+                          style: pw.TextStyle(color: session.isFinished
+                              ? PdfColors.green700
+                              : PdfColors.orange700)),
+                    ]
+                ),
+              pw.SizedBox(height: 5),
+              pw.Text('Zdarzenie: ${_dateFormat.format(
+                  session.startEntry.eventActionTimestamp
+                      .toDate())} ${_timeFormat.format(
+                  session.startEntry.eventActionTimestamp.toDate())}',
+                  style: const pw.TextStyle(
+                      fontSize: 8, color: PdfColors.grey600)),
+              if (session.isFinished)
+                pw.Text('Koniec:    ${_dateFormat.format(
+                    session.endEntry!.eventActionTimestamp
+                        .toDate())} ${_timeFormat.format(
+                    session.endEntry!.eventActionTimestamp.toDate())}',
+                    style: const pw.TextStyle(
+                        fontSize: 8, color: PdfColors.grey600)),
+              pw.Divider(height: 10, color: PdfColors.grey400),
+              pw.SizedBox(height: 5),
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: session.allEventsInSession.map((entry) =>
+                    _buildPdfWorkEntryRow(entry)).toList(),
+              ),
+            ]
+        )
+    );
+  }
+
+  pw.Widget _buildPdfWorkEntryRow(WorkEntry entry) {
+    String actionText;
+    if (entry.workTypeIsCheckPoint) {
+      actionText = entry.workTypeName;
+    } else {
+      actionText = '${entry.isStart ? "START" : "STOP"}: ${entry.workTypeName}';
+    }
+
+    final infos = entry.relatedInformations ?? [];
+
+    return pw.Container(
+        padding: const pw.EdgeInsets.only(left: 10, bottom: 5, top: 5),
+        decoration: const pw.BoxDecoration(
+            border: pw.Border(
+                left: pw.BorderSide(color: PdfColors.grey200, width: 2))
+        ),
+        child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text(actionText, style: pw.TextStyle(
+                        fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                    pw.Text('${_timeFormat.format(
+                        entry.eventActionTimestamp.toDate())}',
+                        style: const pw.TextStyle(
+                            fontSize: 9, color: PdfColors.grey700)),
+                  ]
+              ),
+              if (infos.isNotEmpty)
+                ...infos.map((info) {
+                  final List<pw.Widget> infoWidgets = [
+                    pw.Text(
+                        info.content, style: const pw.TextStyle(fontSize: 8)),
+                  ];
+                  if (info.decision != null) {
+                    infoWidgets.add(pw.Text(
+                        info.decision! ? "Odp: TAK" : "Odp: NIE",
+                        style: pw.TextStyle(fontSize: 8,
+                            fontWeight: pw.FontWeight.bold,
+                            color: info.decision!
+                                ? PdfColors.green700
+                                : PdfColors.red700)));
+                  }
+                  if (info.textResponse != null) {
+                    infoWidgets.add(pw.Text('Opis: ${info.textResponse}',
+                        style: const pw.TextStyle(fontSize: 8)));
+                  }
+                  return pw.Container(
+                      padding: const pw.EdgeInsets.only(left: 8, top: 2),
+                      child: pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: infoWidgets)
+                  );
+                }).toList()
+            ]
+        )
+    );
+  }
+
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -467,11 +804,11 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
         foregroundColor: theme.colorScheme.onPrimary,
         actions: [
           IconButton(
-            icon: const Icon(Icons.picture_as_pdf),
-            tooltip: 'Generuj Raport PDF',
-            onPressed: _isLoading || _groupedSessionsByEmployee.isEmpty
+            icon: const Icon(Icons.download_for_offline_outlined),
+            tooltip: 'Eksportuj do Excel',
+            onPressed: _isLoading || _allWorkEntries.isEmpty
                 ? null
-                : _generatePdf,
+                : _exportToExcel,
           )
         ],
       ),
@@ -488,7 +825,7 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
                     child: Text(_errorMessage!,
                         style:
                         TextStyle(color: theme.colorScheme.error))))
-                : _buildHistoryList(theme), // Zaktualizowana lista
+                : _buildHistoryList(theme),
           ),
         ],
       ),
@@ -496,7 +833,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
   }
 
   Widget _buildCollapsibleFilterPanel(ThemeData theme) {
-    // Ta metoda pozostaje bez zmian
     return Card(
       margin: const EdgeInsets.fromLTRB(8, 8, 8, 4),
       elevation: 2,
@@ -530,7 +866,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
   }
 
   Widget _buildSummaryCard(ThemeData theme) {
-    // Ta metoda pozostaje bez zmian
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('Podsumowanie Czasu (${_selectedUser?.displayName ?? "Wszyscy"})',
           style: theme.textTheme.titleMedium?.copyWith(
@@ -548,10 +883,9 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     ]);
   }
 
-  Widget _buildSummaryRow(
-      ThemeData theme, IconData icon, String label, String value,
+  Widget _buildSummaryRow(ThemeData theme, IconData icon, String label,
+      String value,
       {Color? color}) {
-    // Ta metoda pozostaje bez zmian
     return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4.0),
         child: Row(children: [
@@ -568,7 +902,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
   }
 
   Widget _buildFilterSection(ThemeData theme) {
-    // Ta metoda pozostaje bez zmian
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -583,10 +916,11 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
           items: [
             const DropdownMenuItem<UserApp>(
                 value: null, child: Text('Wszyscy pracownicy')),
-            ..._availableUsers.map((u) => DropdownMenuItem<UserApp>(
-                value: u,
-                child: Text(u.displayName ?? 'Użytkownik bez nazwy',
-                    overflow: TextOverflow.ellipsis)))
+            ..._availableUsers.map((u) =>
+                DropdownMenuItem<UserApp>(
+                    value: u,
+                    child: Text(u.displayName ?? 'Użytkownik bez nazwy',
+                        overflow: TextOverflow.ellipsis)))
           ],
           onChanged: _onUserChanged,
         ),
@@ -595,7 +929,9 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
         OutlinedButton.icon(
           icon: const Icon(Icons.date_range),
           label: Text(_selectedDateRange != null
-              ? '${_dateFormat.format(_selectedDateRange!.start)} - ${_dateFormat.format(_selectedDateRange!.end)}'
+              ? '${_dateFormat.format(
+              _selectedDateRange!.start)} - ${_dateFormat.format(
+              _selectedDateRange!.end)}'
               : 'Wybierz zakres dat'),
           onPressed: () => _selectDateRange(context),
           style: OutlinedButton.styleFrom(
@@ -638,8 +974,10 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
           items: [
             const DropdownMenuItem<Area>(
                 value: null, child: Text('Wszystkie obszary')),
-            ..._availableAreasForFilter.map((a) => DropdownMenuItem<Area>(
-                value: a, child: Text(a.name, overflow: TextOverflow.ellipsis)))
+            ..._availableAreasForFilter.map((a) =>
+                DropdownMenuItem<Area>(
+                    value: a,
+                    child: Text(a.name, overflow: TextOverflow.ellipsis)))
           ],
         ),
         const SizedBox(height: 12),
@@ -658,7 +996,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
   }
 
   Widget _buildDatePresetButtons(ThemeData theme) {
-    // Ta metoda pozostaje bez zmian
     return Padding(
       padding: const EdgeInsets.only(bottom: 12.0),
       child: Wrap(
@@ -680,7 +1017,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     );
   }
 
-  // ZAKTUALIZOWANA METODA do budowania listy, teraz na podstawie sesji
   Widget _buildHistoryList(ThemeData theme) {
     if (_groupedSessionsByEmployee.isEmpty && !_isLoading) {
       return const Center(
@@ -692,9 +1028,10 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     }
 
     final userIds = _groupedSessionsByEmployee.keys.toList();
-    userIds.sort((a, b) => (_userNamesMap[a] ?? a)
-        .toLowerCase()
-        .compareTo((_userNamesMap[b] ?? b).toLowerCase()));
+    userIds.sort((a, b) =>
+        (_userNamesMap[a] ?? a)
+            .toLowerCase()
+            .compareTo((_userNamesMap[b] ?? b).toLowerCase()));
 
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
@@ -705,9 +1042,10 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
         final projectsForUser = _groupedSessionsByEmployee[userId]!;
 
         final projectIds = projectsForUser.keys.toList();
-        projectIds.sort((a, b) => (_projectNamesMap[a] ?? a)
-            .toLowerCase()
-            .compareTo((_projectNamesMap[b] ?? b).toLowerCase()));
+        projectIds.sort((a, b) =>
+            (_projectNamesMap[a] ?? a)
+                .toLowerCase()
+                .compareTo((_projectNamesMap[b] ?? b).toLowerCase()));
 
         return Card(
           margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
@@ -716,7 +1054,8 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
           RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           child: ExpansionTile(
             key: PageStorageKey<String>(userId),
-            leading: Icon(Icons.person_outline, color: theme.colorScheme.primary),
+            leading: Icon(
+                Icons.person_outline, color: theme.colorScheme.primary),
             title: Text(userName,
                 style: theme.textTheme.titleLarge
                     ?.copyWith(fontWeight: FontWeight.bold)),
@@ -725,9 +1064,10 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
                   _projectNamesMap[projectId] ?? 'Projekt bez nazwy';
               final areasInProject = projectsForUser[projectId]!;
               final areaIds = areasInProject.keys.toList();
-              areaIds.sort((a, b) => (_areaNamesMap[a] ?? a)
-                  .toLowerCase()
-                  .compareTo((_areaNamesMap[b] ?? b).toLowerCase()));
+              areaIds.sort((a, b) =>
+                  (_areaNamesMap[a] ?? a)
+                      .toLowerCase()
+                      .compareTo((_areaNamesMap[b] ?? b).toLowerCase()));
 
               return ExpansionTile(
                 key: PageStorageKey<String>('$userId-$projectId'),
@@ -742,7 +1082,8 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
                 children: areaIds.map((areaId) {
                   final areaName = _areaNamesMap[areaId] ?? 'Obszar bez nazwy';
                   final sessionsInArea = areasInProject[areaId]!;
-                  return _buildAreaSessionsList(areaName, sessionsInArea, theme);
+                  return _buildAreaSessionsList(
+                      areaName, sessionsInArea, theme);
                 }).toList(),
               );
             }).toList(),
@@ -752,8 +1093,8 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     );
   }
 
-  // NOWA METODA, zastępuje _buildAreaActionsCard
-  Widget _buildAreaSessionsList(String areaName, List<WorkSession> sessions, ThemeData theme) {
+  Widget _buildAreaSessionsList(String areaName, List<WorkSession> sessions,
+      ThemeData theme) {
     if (sessions.isEmpty) return const SizedBox.shrink();
 
     return Padding(
@@ -763,7 +1104,9 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.only(left: 8.0, bottom: 8.0),
-            child: Text("Obszar: $areaName", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            child: Text("Obszar: $areaName",
+                style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold)),
           ),
           ...sessions.map((session) => _buildSessionCard(session, theme)),
         ],
@@ -771,7 +1114,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     );
   }
 
-  // NOWY WIDGET DO BUDOWANIA KARTY SESJI
   Widget _buildSessionCard(WorkSession session, ThemeData theme) {
     return Card(
       elevation: 2,
@@ -784,27 +1126,46 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(session.workTypeName, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            if (session.isCheckPointEvent)
+              Text(session.workTypeName,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                      fontStyle: FontStyle.italic, color: Colors.blue.shade700))
+            else
+              Text(session.workTypeName,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
             Row(
               children: [
-                Icon(Icons.timer_outlined, size: 16, color: theme.colorScheme.primary),
-                const SizedBox(width: 4),
-                Text(
-                  _formatDurationHHMMSS(session.duration),
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.primary,
+                if (!session.isCheckPointEvent) ...[
+                  Icon(Icons.timer_outlined, size: 16,
+                      color: theme.colorScheme.primary),
+                  const SizedBox(width: 4),
+                  Text(
+                    _formatDurationHHMMSS(session.duration),
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.primary,
+                    ),
                   ),
-                ),
+                ],
                 const Spacer(),
-                if (!session.isFinished)
+                if (!session.isFinished && !session.isCheckPointEvent)
                   const Chip(
                     label: Text('W TOKU'),
                     backgroundColor: Colors.green,
                     labelStyle: TextStyle(color: Colors.white, fontSize: 10),
                     padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                if (!session.isCheckPointEvent)
+                  IconButton(
+                    icon: const Icon(Icons.print_outlined),
+                    iconSize: 20.0,
+                    color: theme.colorScheme.secondary,
+                    tooltip: 'Drukuj Kartę Pracy',
+                    onPressed: () =>
+                        _generatePdfForSession(session), // PRZYWRÓCONA FUNKCJA
                   )
               ],
             ),
@@ -813,9 +1174,16 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 8.0),
           child: Text(
-            'Początek: ${_dateFormat.format(session.startEntry.eventActionTimestamp.toDate())} ${_timeFormat.format(session.startEntry.eventActionTimestamp.toDate())}'
-                '${session.isFinished ? "\nKoniec:    ${_dateFormat.format(session.endEntry!.eventActionTimestamp.toDate())} ${_timeFormat.format(session.endEntry!.eventActionTimestamp.toDate())}" : ""}',
-            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+            'Zdarzenie: ${_dateFormat.format(
+                session.startEntry.eventActionTimestamp.toDate())} ${_timeFormat
+                .format(session.startEntry.eventActionTimestamp.toDate())}'
+                '${session.isFinished
+                ? "\nKoniec:      ${_dateFormat.format(
+                session.endEntry!.eventActionTimestamp.toDate())} ${_timeFormat
+                .format(session.endEntry!.eventActionTimestamp.toDate())}"
+                : ""}',
+            style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline),
           ),
         ),
         children: [
@@ -827,7 +1195,8 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
               children: [
                 Text("Oś czasu zdarzeń:", style: theme.textTheme.labelLarge),
                 const SizedBox(height: 8),
-                ...session.allEventsInSession.map((event) => _buildWorkEntryRowWithInfo(event, theme)),
+                ...session.allEventsInSession.map((event) =>
+                    _buildWorkEntryRowWithInfo(event, theme)),
               ],
             ),
           ),
@@ -836,28 +1205,35 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     );
   }
 
-  // Ta metoda pozostaje bez zmian, jest teraz wywoływana wewnątrz _buildSessionCard
   Widget _buildWorkEntryRowWithInfo(WorkEntry entry, ThemeData theme) {
     final infos = entry.relatedInformations ?? [];
 
     IconData icon;
     Color color;
-    String actionText = entry.isStart ? "Rozpoczęcie" : "Zakończenie";
+    String actionText;
 
-    if (entry.workTypeIsBreak) {
-      icon = entry.isStart
-          ? Icons.free_breakfast_outlined
-          : Icons.check_circle_outline;
-      color = Colors.orange.shade700;
-    } else if (entry.workTypeIsSubTask) {
-      icon =
-      entry.isStart ? Icons.low_priority_rounded : Icons.check_circle_outline;
-      color = Colors.teal.shade600;
+    if (entry.workTypeIsCheckPoint) {
+      actionText = entry.workTypeName;
+      icon = Icons.flag_outlined;
+      color = Colors.blue.shade700;
     } else {
-      icon =
-      entry.isStart ? Icons.play_circle_outline : Icons.stop_circle_outlined;
-      color = theme.colorScheme.primary;
+      actionText =
+      '${entry.isStart ? "Rozpoczęcie" : "Zakończenie"}: ${entry.workTypeName}';
+      if (entry.workTypeIsBreak) {
+        icon = entry.isStart ? Icons.free_breakfast_outlined : Icons
+            .check_circle_outline;
+        color = Colors.orange.shade700;
+      } else if (entry.workTypeIsSubTask) {
+        icon =
+        entry.isStart ? Icons.low_priority_rounded : Icons.check_circle_outline;
+        color = Colors.teal.shade600;
+      } else {
+        icon =
+        entry.isStart ? Icons.play_circle_outline : Icons.stop_circle_outlined;
+        color = theme.colorScheme.primary;
+      }
     }
+
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
@@ -874,12 +1250,14 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '$actionText: ${entry.workTypeName}',
+                      actionText,
                       style: theme.textTheme.bodyLarge
                           ?.copyWith(fontWeight: FontWeight.w600),
                     ),
                     Text(
-                      '${_dateFormat.format(entry.eventActionTimestamp.toDate())}  ${_timeFormat.format(entry.eventActionTimestamp.toDate())}',
+                      '${_dateFormat.format(
+                          entry.eventActionTimestamp.toDate())}  ${_timeFormat
+                          .format(entry.eventActionTimestamp.toDate())}',
                       style: theme.textTheme.bodySmall
                           ?.copyWith(color: theme.colorScheme.outline),
                     ),
@@ -894,8 +1272,7 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
               child: Container(
                 padding: const EdgeInsets.all(8.0),
                 decoration: BoxDecoration(
-                  border: Border(
-                      left: BorderSide(color: theme.dividerColor, width: 2.0)),
+                  border: Border.all(color: theme.colorScheme.outline),
                 ),
                 child: _buildInfoList(infos, theme),
               ),
@@ -905,7 +1282,6 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     );
   }
 
-  // Ta metoda pozostaje bez zmian
   Widget _buildInfoList(List<Information> infos, ThemeData theme) {
     if (infos.isEmpty) {
       return const SizedBox.shrink();
@@ -914,242 +1290,39 @@ class _AdminInfoHistoryScreenState extends State<AdminInfoHistoryScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: infos.map((info) {
+        final category = _allCategories[info.categoryId];
         return Padding(
           padding: const EdgeInsets.only(left: 10.0, bottom: 8.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                info.content,
-                style: theme.textTheme.bodyMedium,
-              ),
+              if(category != null)
+                Row(children: [
+                  Icon(category.iconData, color: category.color, size: 16),
+                  const SizedBox(width: 6),
+                  Text(info.title, style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold)),
+                ]),
               const SizedBox(height: 2),
+              Text(info.content, style: theme.textTheme.bodyMedium),
               if (info.decision != null)
                 info.decision!
-                    ? Text(
-                  "Odpowiedź: TAK",
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: Colors.green.shade700, fontWeight: FontWeight.bold),
-                )
+                    ? Text("Odpowiedź: TAK",
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                        color: Colors.green.shade700,
+                        fontWeight: FontWeight.bold))
                     : Text("Odpowiedź: NIE",
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(color: Colors.red.shade700, fontWeight: FontWeight.bold)),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                        color: Colors.red.shade700,
+                        fontWeight: FontWeight.bold)),
               if (info.textResponse != null)
-                Text(
-                  'Opis: ${info.textResponse!}',
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: theme.colorScheme.outline),
-                ),
-              Text(
-                _formatUpdateTime(info.updatedAt),
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.outline, fontSize: 10),
-              ),
+                Text('Opis: ${info.textResponse!}',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.outline)),
             ],
           ),
         );
       }).toList(),
-    );
-  }
-
-  // Ta metoda pozostaje bez zmian
-  String _formatUpdateTime(Timestamp? timestamp) {
-    if (timestamp == null) {
-      return 'Brak daty aktualizacji';
-    }
-    return 'Aktualizacja: ${_dateFormat.format(timestamp.toDate())} ${_timeFormat.format(timestamp.toDate())}';
-  }
-
-  // --- Logika generowania PDF ---
-  // Zaktualizowana, aby odzwierciedlać nową strukturę sesji
-
-  Future<void> _generatePdf() async {
-    // Zmieniamy ścieżki na nowe pliki czcionek Roboto
-    final regularFontData =
-    await rootBundle.load("assets/fonts/Roboto-Regular.ttf");
-    final boldFontData =
-    await rootBundle.load("assets/fonts/Roboto-Bold.ttf");
-    final ttfRegular = pw.Font.ttf(regularFontData.buffer.asByteData());
-    final ttfBold = pw.Font.ttf(boldFontData.buffer.asByteData());
-
-    final pdfTheme = pw.ThemeData.withFont(base: ttfRegular, bold: ttfBold);
-    final pdf = pw.Document(theme: pdfTheme);
-
-    final reportName = _selectedUser?.displayName ?? 'Wszyscy Pracownicy';
-    final dateRange = _selectedDateRange != null
-        ? '${_dateFormat.format(_selectedDateRange!.start)} - ${_dateFormat.format(_selectedDateRange!.end)}'
-        : 'Nie wybrano zakresu';
-
-    pdf.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        header: (context) => _buildPdfHeader(reportName, dateRange),
-        footer: (context) => _buildPdfFooter(context),
-        build: (context) {
-          final List<pw.Widget> content = [];
-
-          content.add(pw.Header(level: 1, text: 'Podsumowanie Czasu'));
-          content.add(_buildPdfSummaryTable());
-          content.add(pw.SizedBox(height: 20));
-
-          content.add(pw.Header(level: 1, text: 'Szczegółowy Rejestr Sesji Pracy'));
-          content.add(pw.Divider());
-
-          final sortedUserIds = _groupedSessionsByEmployee.keys.toList()
-            ..sort((a, b) => (_userNamesMap[a] ?? a)
-                .toLowerCase()
-                .compareTo((_userNamesMap[b] ?? b).toLowerCase()));
-
-          for (var userId in sortedUserIds) {
-            final projects = _groupedSessionsByEmployee[userId]!;
-            final userName = _userNamesMap[userId] ?? 'ID: $userId';
-            content.add(pw.Header(
-              level: 2,
-              text: 'Pracownik: $userName',
-              textStyle: const pw.TextStyle(color: PdfColors.blueGrey800),
-            ));
-
-            final sortedProjectIds = projects.keys.toList()
-              ..sort((a, b) => (_projectNamesMap[a] ?? a)
-                  .toLowerCase()
-                  .compareTo((_projectNamesMap[b] ?? b).toLowerCase()));
-
-            for (var projectId in sortedProjectIds) {
-              final areas = projects[projectId]!;
-              final projectName = _projectNamesMap[projectId] ?? 'ID: $projectId';
-              content.add(pw.Header(
-                level: 3,
-                text: 'Projekt: $projectName',
-              ));
-
-              final sortedAreaIds = areas.keys.toList()
-                ..sort((a, b) => (_areaNamesMap[a] ?? a)
-                    .toLowerCase()
-                    .compareTo((_areaNamesMap[b] ?? b).toLowerCase()));
-
-              for (var areaId in sortedAreaIds) {
-                final sessions = areas[areaId]!;
-                if (sessions.isEmpty) continue;
-
-                final areaName = _areaNamesMap[areaId] ?? 'ID: $areaId';
-                content.add(pw.Header(
-                  level: 4,
-                  text: 'Obszar: $areaName',
-                  textStyle: pw.TextStyle(fontStyle: pw.FontStyle.italic),
-                ));
-
-                content.add(pw.Column(
-                    children: sessions
-                        .map((session) => _buildPdfSessionBlock(session))
-                        .toList()));
-                content.add(pw.SizedBox(height: 10));
-              }
-            }
-            content.add(pw.Divider(height: 20));
-          }
-
-          return content;
-        },
-      ),
-    );
-
-    await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => pdf.save(),
-      name: 'raport_akcji_${reportName.replaceAll(' ', '_')}.pdf',
-    );
-  }
-
-  pw.Widget _buildPdfHeader(String reportName, String dateRange) {
-    // bez zmian
-    return pw.Container(/* ... */);
-  }
-
-  pw.Widget _buildPdfFooter(pw.Context context) {
-    // bez zmian
-    return pw.Container(/* ... */);
-  }
-
-  pw.Widget _buildPdfSummaryTable() {
-    // bez zmian
-    return pw.Table(/* ... */);
-  }
-
-  // NOWA METODA DO RENDEROWANIA BLOKU SESJI W PDF
-  pw.Widget _buildPdfSessionBlock(WorkSession session) {
-    return pw.Container(
-        padding: const pw.EdgeInsets.all(8),
-        margin: const pw.EdgeInsets.only(bottom: 10),
-        decoration: pw.BoxDecoration(
-            border: pw.Border.all(color: PdfColors.grey300),
-            borderRadius: pw.BorderRadius.circular(4)),
-        child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text(session.workTypeName, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
-              pw.SizedBox(height: 5),
-              pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text('Czas trwania: ${_formatDurationHHMMSS(session.duration)}'),
-                    pw.Text(session.isFinished ? 'Zakończona' : 'W toku', style: pw.TextStyle(color: session.isFinished ? PdfColors.green700 : PdfColors.orange700)),
-                  ]
-              ),
-              pw.SizedBox(height: 5),
-              pw.Text('Początek: ${_dateFormat.format(session.startEntry.eventActionTimestamp.toDate())} ${_timeFormat.format(session.startEntry.eventActionTimestamp.toDate())}', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
-              if (session.isFinished)
-                pw.Text('Koniec:    ${_dateFormat.format(session.endEntry!.eventActionTimestamp.toDate())} ${_timeFormat.format(session.endEntry!.eventActionTimestamp.toDate())}', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
-              pw.Divider(height: 10, color: PdfColors.grey400),
-              pw.SizedBox(height: 5),
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: session.allEventsInSession.map((entry) => _buildPdfWorkEntryRow(entry)).toList(),
-              ),
-            ]
-        )
-    );
-  }
-
-  // NOWA METODA POMOCNICZA DLA PDF, renderuje pojedynczy wiersz zdarzenia
-  pw.Widget _buildPdfWorkEntryRow(WorkEntry entry) {
-    String actionText = entry.isStart ? "START" : "STOP";
-    if (entry.workTypeIsBreak) actionText += " Przerwa";
-    if (entry.workTypeIsSubTask) actionText += " Podzadanie";
-
-    final infos = entry.relatedInformations ?? [];
-
-    return pw.Container(
-        padding: const pw.EdgeInsets.only(left: 10, bottom: 5, top: 5),
-        decoration: const pw.BoxDecoration(
-            border: pw.Border(left: pw.BorderSide(color: PdfColors.grey200, width: 2))
-        ),
-        child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text('$actionText: ${entry.workTypeName}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
-                    pw.Text('${_timeFormat.format(entry.eventActionTimestamp.toDate())}', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
-                  ]
-              ),
-              if (infos.isNotEmpty)
-                ...infos.map((info) {
-                  final List<pw.Widget> infoWidgets = [
-                    pw.Text(info.content, style: const pw.TextStyle(fontSize: 8)),
-                  ];
-                  if (info.decision != null) {
-                    infoWidgets.add(pw.Text(info.decision! ? "Odp: TAK" : "Odp: NIE", style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: info.decision! ? PdfColors.green700 : PdfColors.red700)));
-                  }
-                  if (info.textResponse != null) {
-                    infoWidgets.add(pw.Text('Opis: ${info.textResponse}', style: const pw.TextStyle(fontSize: 8)));
-                  }
-                  return pw.Container(
-                      padding: const pw.EdgeInsets.only(left: 8, top: 2),
-                      child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: infoWidgets)
-                  );
-                }).toList()
-            ]
-        )
     );
   }
 }

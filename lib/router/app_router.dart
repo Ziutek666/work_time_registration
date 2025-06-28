@@ -2,10 +2,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:work_time_registration/models/user_app.dart';
 import 'package:work_time_registration/screens/area/select_area_for_user_screen.dart';
+import 'package:work_time_registration/screens/history/admin-history.dart';
 import 'package:work_time_registration/screens/history/user-history-menu-screen.dart';
-import 'package:work_time_registration/screens/members/add_project_member_screen.dart';
-import 'package:work_time_registration/screens/members/project_members_screen.dart';
+import 'package:work_time_registration/screens/members/edit_member_screen.dart';
 import 'package:work_time_registration/services/area_service.dart';
 import 'package:work_time_registration/user/edit_user_screen.dart';
 import '../home_screen.dart';
@@ -14,8 +15,8 @@ import '../models/code-qr.dart';
 import '../models/information.dart';
 import '../models/information_category.dart';
 import '../models/license.dart';
+import '../models/member.dart';
 import '../models/project.dart';
-import '../models/project_member.dart';
 import '../models/work_entry.dart';
 import '../models/work_type.dart';
 import '../screens/administration/administration-menu-screen.dart';
@@ -28,17 +29,15 @@ import '../screens/auth/registration_screen.dart';
 import '../screens/auth/verification_screen.dart';
 import '../screens/codeQr/codes_qr_screen.dart';
 import '../screens/codeQr/create-code-qr-screen.dart';
-import '../screens/employer/my_employers_screen.dart';
 import '../screens/history/admin-history-menu-screen.dart';
-import '../screens/history/admin-info-history.dart';
-import '../screens/history/admin_work_history.dart';
-import '../screens/history/user_info_history_screen.dart';
-import '../screens/history/user_work_history.dart';
+import '../screens/history/ai-analysis-screen.dart';
+import '../screens/history/user-history.dart';
 import '../screens/information/create_information_screen.dart';
 import '../screens/information/edit_information_screen.dart';
 import '../screens/information/informations_screen.dart';
 import '../screens/information/select_information_screen.dart';
-import '../screens/members/edit_project_member_screen.dart';
+import '../screens/members/create_member_screen.dart';
+import '../screens/members/members_screen.dart';
 import '../screens/project/create_project_screen.dart';
 import '../screens/project/edit_project_screen.dart';
 import '../screens/project/my_projects_screen.dart';
@@ -172,7 +171,7 @@ final appRouter = GoRouter(
       path: '/edit_work_type',
       builder: (context, state) {
         final workTypeToEdit = state.extra as WorkType;
-        return EditWorkTypeScreen(workTypeToEdit: workTypeToEdit,);
+        return EditWorkTypeScreen(workType: workTypeToEdit,);
       },
     ),
     GoRoute(
@@ -181,23 +180,12 @@ final appRouter = GoRouter(
         final extraData = state.extra as Map<String, dynamic>?;
         final project = extraData?['project'] as Project?;
         if (project == null) {
-          // Można tu rzucić błąd lub przekierować, jeśli projekt jest wymagany
-          // Dla bezpieczeństwa, można wrócić do poprzedniej strony lub strony głównej
-          // return const ErrorScreen(message: 'Brak danych projektu do utworzenia typu pracy.');
-          // Lub, jeśli masz domyślną stronę, na którą można wrócić:
-          // WidgetsBinding.instance.addPostFrameCallback((_) => GoRouter.of(context).pop());
-          // return const SizedBox.shrink(); // Pusty widget, aby uniknąć błędu budowania
-          // Najlepiej jednak zapewnić, że project jest zawsze przekazywany
           return Scaffold(body: Center(child: Text("Błąd: Brak danych projektu.")));
         }
-        final initialIsBreak = extraData?['isBreak'] as bool?;
-        final initialIsSubTask = extraData?['isSubTask'] as bool?;
-        final workTypeCategory = extraData?['workTypeCategory'] as String?;
+        final workTypeIs = extraData?['workTypeIs'] as String;
         return CreateWorkTypeScreen(
           project: project,
-          initialIsBreak: initialIsBreak,
-          initialIsSubTask: initialIsSubTask,
-          workTypeCategory: workTypeCategory,
+          workTypeCategory: workTypeIs,
         );
       },
     ),
@@ -274,38 +262,6 @@ final appRouter = GoRouter(
       },
     ),
     GoRoute(
-      path: '/project_members',
-      builder: (context, state) {
-        final extra = state.extra as Map<String, dynamic>;
-        final project = extra['project'] as Project;
-        final license = extra['license'] as License;
-        return ProjectMembersScreen(project: project,license: license,);
-      },
-    ),
-    GoRoute(
-      path: '/edit_project_member',
-      builder: (context, state) {
-        final extra = state.extra as Map<String, dynamic>;
-        final project = extra['project'] as Project;
-        final projectMember = extra['projectMember'] as ProjectMember;
-        return EditProjectMemberScreen(project: project,projectMember:projectMember,);
-      },
-    ),
-    GoRoute(
-      path: '/add_project_member_to_project',
-      builder: (context, state) {
-        final project = state.extra as Project;
-        return AddProjectMemberScreen(project: project,);
-      },
-    ),
-    GoRoute(
-      path: '/my-employers',
-      builder: (context, state) {
-        final lastWorkEntry = state.extra as WorkEntry?;
-        return MyEmployersScreen(lastWorkTypeEntry: lastWorkEntry,);
-      },
-    ),
-    GoRoute(
       path: '/codes-qr',
       builder: (context, state) {
         final extra = state.extra as Map<String, dynamic>;
@@ -345,28 +301,44 @@ final appRouter = GoRouter(
       builder: (context, state) => const UserHistoryMenuScreen(),
     ),
     GoRoute(
-      path: '/user-work-history',
-      builder: (context, state) => const UserWorkHistoryScreen(),
+      path: '/user-history',
+      builder: (context, state) => const UserHistoryScreen(),
+    ),
+    GoRoute(
+      path: '/ai-analysis',
+      builder: (context, state) => const AiAnalysisScreen(),
     ),
     GoRoute(
       path: '/admin-history-menu',
       builder: (context, state) => const AdminHistoryMenuScreen(),
     ),
     GoRoute(
-      path: '/admin-work-history',
-      builder: (context, state) => const AdminWorkHistoryScreen(),
-    ),
-    GoRoute(
-      path: '/admin-info-history',
-      builder: (context, state) => const AdminInfoHistoryScreen(),
-    ),
-    GoRoute(
-      path: '/user-info-history',
-      builder: (context, state) => const UserInfoHistoryScreen(),
+      path: '/admin-history',
+      builder: (context, state) => const AdminHistoryScreen(),
     ),
     GoRoute(
       path: '/administration-menu',
       builder: (context, state) => const AdministrationMenuScreen(),
+    ),
+    GoRoute(
+      path: '/members-screen',
+      builder: (context, state) => const MembersScreen(),
+    ),
+    GoRoute(
+      path: '/create_member',
+      builder: (context, state) {
+        final ownerId = state.extra as String;
+        return CreateMemberScreen(ownerId:ownerId);
+      },
+    ),
+    GoRoute(
+      path: '/edit_member',
+      builder: (context, state) {
+        final extra = state.extra as Map<String, dynamic>;
+        final user = extra['user'] as UserApp;
+        final member = extra['member'] as Member;
+        return EditMemberScreen(user: user,initialMember: member,);
+      },
     ),
   ],
 );

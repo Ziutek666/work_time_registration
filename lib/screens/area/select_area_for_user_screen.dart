@@ -2,7 +2,6 @@
 // (Dostosuj ścieżkę do swojej struktury projektu)
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:work_time_registration/services/project_member_service.dart';
 import '../../models/area.dart';
 import '../../models/project.dart';
 import '../../models/work_entry.dart';
@@ -42,7 +41,7 @@ class _SelectAreaForUserScreenState extends State<SelectAreaForUserScreen> { // 
 
   Future<void> _getAreas() async {
     var user = await userService.getCurrentUser();
-    var projectMember = await projectMemberService.getProjectMemberByProjectAndUser(widget.project.projectId, user?.uid??'');
+    var projectMember=null;// = await membersService.getProjectMemberByProjectAndUser(widget.project.projectId, user?.uid??'');
     if (projectMember != null) {
       if (!mounted) return;
       setState(() {

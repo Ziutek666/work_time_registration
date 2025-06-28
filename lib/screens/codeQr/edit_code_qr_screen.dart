@@ -1,15 +1,18 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 
-// Importy modeli
+// Importy modeli - upewnij się, że ścieżki są poprawne dla Twojego projektu
 import '../../models/area.dart';
 import '../../models/code-qr.dart';
 import '../../models/work_type.dart';
 
-// Importy serwisów i widgetów
+// Importy serwisów i widgetów - upewnij się, że ścieżki są poprawne
 import '../../exceptions/code_qr_exception.dart';
 import '../../services/area_service.dart';
-import '../../services/code_qr_service.dart';
+import '../../services/code_qr_service.dart';// Serwis do obsługi lokalizacji
+import '../../services/location_service.dart';
 import '../../services/work_type_service.dart';
 import '../../../widgets/dialogs.dart';
 
@@ -31,23 +34,35 @@ class _EditCodeQrScreenState extends State<EditCodeQrScreen> {
   late final TextEditingController _descriptionController;
 
   bool _isSaving = false;
-  bool _isInitializing = true; // Flaga do początkowego ładowania danych
+  bool _isInitializing = true;
 
-  // --- NOWY STAN DLA OBSZARU I TYPÓW PRACY ---
+  // --- Stan dla obszaru i typów pracy ---
   Area? _selectedArea;
   late List<String> _selectedWorkTypesIds;
   List<WorkType> _availableWorkTypesForArea = [];
   bool _isLoadingWorkTypes = false;
 
+  // --- Stan dla lokalizacji ---
+  bool _isGettingLocation = false;
+  late bool _checkLocation;
+  late final TextEditingController _maxDistanceController;
+  GeoPoint? _currentLocation;
+
   @override
   void initState() {
     super.initState();
-    // Inicjalizujemy kontrolery i stan danymi z edytowanego obiektu
+    // Inicjalizacja kontrolerów
     _nameController = TextEditingController(text: widget.codeQr.name);
     _descriptionController = TextEditingController(text: widget.codeQr.description);
     _selectedWorkTypesIds = List.from(widget.codeQr.workTypeIds);
 
-    // Asynchronicznie dociągamy pełne dane początkowe
+    // Inicjalizacja stanu lokalizacji
+    _checkLocation = widget.codeQr.checkLocation ?? false;
+    _maxDistanceController = TextEditingController(
+      text: widget.codeQr.maxDistanceInMeters?.toString() ?? '100', // Domyślna wartość
+    );
+    _currentLocation = widget.codeQr.location;
+
     _loadInitialData();
   }
 
@@ -55,10 +70,11 @@ class _EditCodeQrScreenState extends State<EditCodeQrScreen> {
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
+    _maxDistanceController.dispose();
     super.dispose();
   }
 
-  /// Ładuje dane początkowe (obszar i jego typy pracy) na starcie ekranu.
+  /// Ładuje dane początkowe (obszar i jego typy pracy)
   Future<void> _loadInitialData() async {
     try {
       if (widget.codeQr.areaId.isNotEmpty) {
@@ -67,7 +83,6 @@ class _EditCodeQrScreenState extends State<EditCodeQrScreen> {
           setState(() {
             _selectedArea = area;
           });
-          // Po załadowaniu obszaru, ładujemy jego typy pracy
           if (area != null) {
             await _loadWorkTypesForSelectedArea();
           }
@@ -92,6 +107,11 @@ class _EditCodeQrScreenState extends State<EditCodeQrScreen> {
       showErrorDialog(context, 'Brak Obszaru', 'Musisz wybrać obszar, do którego chcesz przypisać ten kod QR.');
       return;
     }
+    // Walidacja lokalizacji
+    if (_checkLocation && _currentLocation == null) {
+      showErrorDialog(context, 'Brak Lokalizacji', 'Jeśli weryfikacja lokalizacji jest włączona, musisz pobrać i zapisać lokalizację.');
+      return;
+    }
 
     setState(() { _isSaving = true; });
 
@@ -104,7 +124,12 @@ class _EditCodeQrScreenState extends State<EditCodeQrScreen> {
       ownerId: widget.codeQr.ownerId,
       licenseId: widget.codeQr.licenseId,
       workTypeIds: _selectedWorkTypesIds,
-      // TODO: Zaktualizuj pozostałe pola, jak lokalizacja, qrData itp.
+      // Pola lokalizacji
+      checkLocation: _checkLocation,
+      location: _checkLocation ? _currentLocation : null,
+      maxDistanceInMeters: _checkLocation
+          ? (int.tryParse(_maxDistanceController.text.trim()) ?? 100)
+          : null,
     );
 
     try {
@@ -123,8 +148,31 @@ class _EditCodeQrScreenState extends State<EditCodeQrScreen> {
     }
   }
 
-  // --- Nowe metody do wyboru obszaru i typów pracy ---
+  /// Metoda do pobierania aktualnej lokalizacji urządzenia
+  Future<void> _getCurrentLocation() async {
+    if (_isGettingLocation) return;
+    setState(() => _isGettingLocation = true);
 
+    try {
+      final position = await LocationService.determinePosition();
+      if (mounted) {
+        setState(() {
+          _currentLocation = GeoPoint(position.latitude, position.longitude);
+        });
+        showInfoDialog(context, 'Sukces', 'Pobrano aktualną lokalizację.');
+      }
+    } catch (e) {
+      if (mounted) {
+        showErrorDialog(context, 'Błąd Lokalizacji', e.toString());
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isGettingLocation = false);
+      }
+    }
+  }
+
+  // --- Metody do wyboru obszaru i typów pracy (bez zmian) ---
   Future<void> _selectArea() async {
     if (_isSaving) return;
     final result = await context.push<Area?>(
@@ -174,7 +222,6 @@ class _EditCodeQrScreenState extends State<EditCodeQrScreen> {
       }
     });
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -255,6 +302,9 @@ class _EditCodeQrScreenState extends State<EditCodeQrScreen> {
                           const SizedBox(height: 16.0),
                           _buildWorkTypeSelectionSection(theme),
 
+                          const SizedBox(height: 24.0),
+                          _buildLocationSection(theme),
+
                           const SizedBox(height: 32.0),
                           ElevatedButton.icon(
                             icon: const Icon(Icons.save),
@@ -279,8 +329,7 @@ class _EditCodeQrScreenState extends State<EditCodeQrScreen> {
     );
   }
 
-  // Metody pomocnicze do budowania UI są identyczne jak w CreateCodeQrScreen
-
+  // Metody pomocnicze do budowania UI
   Widget _buildSectionTitle(TextTheme textTheme, String title) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12.0, top: 8.0),
@@ -388,6 +437,88 @@ class _EditCodeQrScreenState extends State<EditCodeQrScreen> {
               separatorBuilder: (context, index) => const Divider(height: 1),
             ),
           ),
+      ],
+    );
+  }
+
+  Widget _buildLocationSection(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionTitle(theme.textTheme, "3. Lokalizacja (Opcjonalnie)"),
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: theme.colorScheme.outline.withOpacity(0.3)),
+          ),
+          child: Column(
+            children: [
+              SwitchListTile(
+                title: const Text("Wymagaj weryfikacji lokalizacji"),
+                subtitle: const Text("Skanowanie powiedzie się tylko w pobliżu"),
+                value: _checkLocation,
+                onChanged: (value) {
+                  setState(() {
+                    _checkLocation = value;
+                  });
+                },
+                secondary: Icon(Icons.location_on_outlined, color: theme.colorScheme.primary),
+              ),
+              if (_checkLocation)
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeInOut,
+                  child: Column(
+                    children: [
+                      const Divider(height: 1),
+                      Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _buildTextFormField(
+                              controller: _maxDistanceController,
+                              labelText: 'Maksymalny dystans (w metrach)',
+                              validator: (v) {
+                                if (v == null || v.trim().isEmpty) return 'Pole jest wymagane.';
+                                if (int.tryParse(v) == null) return 'Wprowadź poprawną liczbę.';
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                            if (_isGettingLocation)
+                              const Center(child: CircularProgressIndicator())
+                            else
+                              OutlinedButton.icon(
+                                icon: const Icon(Icons.my_location),
+                                label: const Text('Pobierz aktualną lokalizację'),
+                                onPressed: _getCurrentLocation,
+                              ),
+                            const SizedBox(height: 8),
+                            if (_currentLocation != null)
+                              Center(
+                                child: Text(
+                                  'Zapisano: ${_currentLocation!.latitude.toStringAsFixed(5)}, '
+                                      '${_currentLocation!.longitude.toStringAsFixed(5)}',
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                              )
+                            else
+                              Center(
+                                child: Text(
+                                  'Nie pobrano jeszcze lokalizacji',
+                                  style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
       ],
     );
   }

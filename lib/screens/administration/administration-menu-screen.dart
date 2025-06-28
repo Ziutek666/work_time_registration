@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../models/license.dart';
+import '../../services/license_service.dart';
+import '../../services/user_service.dart';
+
 class AdministrationMenuScreen extends StatefulWidget {
-  // Ten ekran nie wymaga przekazywania danych w konstruktorze,
-  // ale zachowujemy standardowy wzorzec.
   const AdministrationMenuScreen({super.key});
 
   @override
@@ -11,6 +13,45 @@ class AdministrationMenuScreen extends StatefulWidget {
 }
 
 class _AdministrationMenuScreenState extends State<AdministrationMenuScreen> {
+  License? _license;
+  bool _isLoadingLicense = true;
+  String? _licenseError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLicense();
+  }
+
+  Future<void> _loadLicense() async {
+    if (!mounted) return;
+    setState(() {
+      _isLoadingLicense = true;
+      _licenseError = null;
+    });
+
+    try {
+      final ownerId = await userService.uid;
+      if (ownerId == null) {
+        throw Exception('Nie można zidentyfikować właściciela.');
+      }
+
+      _license = await licenseService.getLicenseForOwner(ownerId);
+
+    } catch (e) {
+      if (mounted) {
+        _licenseError = 'Błąd ładowania licencji: ${e.toString()}';
+        debugPrint(_licenseError);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingLicense = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -22,23 +63,19 @@ class _AdministrationMenuScreenState extends State<AdministrationMenuScreen> {
         backgroundColor: colorScheme.primary,
         foregroundColor: colorScheme.onPrimary,
         elevation: 4.0,
-        // Zakładając, że ten ekran jest częścią większej nawigacji,
-        // dodajemy przycisk powrotu.
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           tooltip: "Wróć",
           onPressed: () {
-            // Logika powrotu, np. do ekranu głównego
             if (context.canPop()) {
               context.pop();
             } else {
-              // Jeśli nie można wrócić, przejdź do zdefiniowanej ścieżki (np. home)
               context.go('/');
             }
           },
         ),
         title: Text(
-          "Panel Administracyjny", // Tytuł ekranu
+          "Panel Administracyjny",
           style: textTheme.titleLarge?.copyWith(
             color: colorScheme.onPrimary,
             fontWeight: FontWeight.bold,
@@ -46,7 +83,6 @@ class _AdministrationMenuScreenState extends State<AdministrationMenuScreen> {
         ),
       ),
       body: Container(
-        // Utrzymanie spójnego tła z gradientem
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
@@ -57,45 +93,81 @@ class _AdministrationMenuScreenState extends State<AdministrationMenuScreen> {
             end: Alignment.bottomRight,
           ),
         ),
-        child: _menuButtons(theme), // Budowanie menu
+        child: _menuButtons(theme),
       ),
     );
   }
 
   Widget _menuButtons(ThemeData theme) {
-    // ListView zapewnia elastyczność i możliwość przewijania
     return ListView(
       padding: const EdgeInsets.all(16.0),
       children: <Widget>[
         _buildMenuOption(
           theme: theme,
-          icon: Icons.business_center_outlined, // Ikona dla projektów
+          icon: Icons.business_center_outlined,
           title: 'Moje projekty',
-          // Nawigacja do ekranu z listą projektów
           onTap: () => context.go('/my-projects'),
         ),
         const SizedBox(height: 12),
         _buildMenuOption(
           theme: theme,
-          icon: Icons.history_outlined, // Ikona dla historii
+          icon: Icons.history_outlined,
           title: 'Historia',
-          // Docelowa ścieżka dla historii, np. logi ogólne
           onTap: () => context.go('/admin-history-menu'),
         ),
         const SizedBox(height: 12),
         _buildMenuOption(
           theme: theme,
-          icon: Icons.supervised_user_circle_outlined, // Ikona dla pracowników
+          icon: Icons.supervised_user_circle_outlined,
           title: 'Pracownicy',
-          // Docelowa ścieżka dla zarządzania pracownikami
-          onTap: () => context.go('/employees-management'),
+          onTap: () => context.go('/members-screen'),
+        ),
+        _buildLicenseSection(theme),
+      ],
+    );
+  }
+
+  Widget _buildLicenseSection(ThemeData theme) {
+    if (_isLoadingLicense) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 24.0),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_license == null) {
+      // Jeśli nie ma licencji (lub wystąpił błąd), nie pokazuj tej sekcji
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 24),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+          child: Text(
+            "Licencja i subskrypcja",
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: Colors.white.withOpacity(0.8), // Lepszy kontrast na gradiencie
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        _buildMenuOption(
+          theme: theme,
+          icon: Icons.payment_outlined,
+          title: 'Zarządzaj subskrypcją',
+          onTap: () {
+            context.push('/buySubscription', extra: _license);
+          },
         ),
       ],
     );
   }
 
-  // Ta metoda jest w pełni reużywalna i skopiowana z Twojego przykładu,
-  // aby zapewnić jednolity wygląd i działanie przycisków w całej aplikacji.
+  // POPRAWKA: Pełna implementacja funkcji budującej przycisk menu
   Widget _buildMenuOption({
     required ThemeData theme,
     required IconData icon,
@@ -126,7 +198,6 @@ class _AdministrationMenuScreenState extends State<AdministrationMenuScreen> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12.0),
         ),
-        tileColor: colorScheme.surface,
         splashColor: colorScheme.primary.withOpacity(0.1),
       ),
     );

@@ -1,11 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-// Klasa pomocnicza UserAction (pozostaje bez zmian, jeśli jest używana w Information)
-// Jeśli nie jest używana bezpośrednio przez WorkType, można ją pominąć w tym pliku,
-// zakładając, że jest zdefiniowana tam, gdzie jest potrzebna (np. w modelu Information).
-
 class WorkType {
-  final String workTypeId; // ID dokumentu Firestore
+  final String workTypeId;
   final String name;
   final String description;
   final Duration? defaultDuration;
@@ -13,10 +9,14 @@ class WorkType {
   final bool isPaid;
   final String projectId;
   final String ownerId;
-  final bool isSubTask; // Wskazuje, czy TEN WorkType jest podzadaniem
+  final bool isSubTask;
   final String? userId;
   final List<String> informationIds;
-  final List<String> subTaskIds; // NOWE POLE: Lista ID powiązanych podzadań
+  final List<String> subTaskIds;
+  final bool isRequired;
+  final bool isCheckPoint;
+  final bool isMain;
+  final bool requiresQrScan; // NOWOŚĆ: Pole określające wymóg skanowania QR
 
   const WorkType({
     this.workTypeId = '',
@@ -27,12 +27,16 @@ class WorkType {
     required this.isPaid,
     required this.projectId,
     required this.ownerId,
-    this.isSubTask = false, // To pole określa, czy dany WorkType sam w sobie jest podzadaniem
+    this.isSubTask = false,
     this.userId,
     List<String>? informationIds,
-    List<String>? subTaskIds, // Dodano do konstruktora
+    List<String>? subTaskIds,
+    this.isRequired = false,
+    this.isCheckPoint = false,
+    this.isMain = false,
+    this.requiresQrScan = false, // NOWOŚĆ: Domyślna wartość false
   })  : informationIds = informationIds ?? const [],
-        subTaskIds = subTaskIds ?? const []; // Inicjalizacja nowego pola
+        subTaskIds = subTaskIds ?? const [];
 
   WorkType copyWith({
     String? workTypeId,
@@ -48,7 +52,11 @@ class WorkType {
     String? userId,
     bool? clearUserId,
     List<String>? informationIds,
-    List<String>? subTaskIds, // Dodano do copyWith
+    List<String>? subTaskIds,
+    bool? isRequired,
+    bool? isCheckPoint,
+    bool? isMain,
+    bool? requiresQrScan, // NOWOŚĆ
   }) {
     return WorkType(
       workTypeId: workTypeId ?? this.workTypeId,
@@ -61,14 +69,17 @@ class WorkType {
       ownerId: ownerId ?? this.ownerId,
       isSubTask: isSubTask ?? this.isSubTask,
       userId: clearUserId == true ? null : (userId ?? this.userId),
-      informationIds: informationIds ?? List<String>.from(this.informationIds), // Kopiowanie listy
-      subTaskIds: subTaskIds ?? List<String>.from(this.subTaskIds), // Kopiowanie nowej listy
+      informationIds: informationIds ?? List<String>.from(this.informationIds),
+      subTaskIds: subTaskIds ?? List<String>.from(this.subTaskIds),
+      isRequired: isRequired ?? this.isRequired,
+      isCheckPoint: isCheckPoint ?? this.isCheckPoint,
+      isMain: isMain ?? this.isMain,
+      requiresQrScan: requiresQrScan ?? this.requiresQrScan, // NOWOŚĆ
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
-      'workTypeId': workTypeId, // Zazwyczaj nie zapisuje się ID dokumentu w jego danych, ale może być potrzebne
       'name': name,
       'description': description,
       'defaultDurationInMinutes': defaultDuration?.inMinutes,
@@ -79,14 +90,18 @@ class WorkType {
       'isSubTask': isSubTask,
       if (userId != null) 'userId': userId,
       'informationIds': informationIds,
-      'subTaskIds': subTaskIds, // Dodano do mapy
+      'subTaskIds': subTaskIds,
+      'isRequired': isRequired,
+      'isCheckPoint': isCheckPoint,
+      'isMain': isMain,
+      'requiresQrScan': requiresQrScan, // NOWOŚĆ
     };
   }
 
-  factory WorkType.fromMap(Map<String, dynamic> map) {
+  factory WorkType.fromMap(Map<String, dynamic> map, {String? docId}) {
     final durationInMinutes = map['defaultDurationInMinutes'] as int?;
     return WorkType(
-      workTypeId: map['workTypeId'] as String? ?? '', // Odczyt workTypeId jeśli jest w mapie (np. przy kopiowaniu)
+      workTypeId: docId ?? map['workTypeId'] as String? ?? '',
       name: map['name'] as String? ?? '',
       description: map['description'] as String? ?? '',
       defaultDuration: durationInMinutes != null ? Duration(minutes: durationInMinutes) : null,
@@ -97,7 +112,11 @@ class WorkType {
       isSubTask: map['isSubTask'] as bool? ?? false,
       userId: map['userId'] as String?,
       informationIds: List<String>.from(map['informationIds'] as List<dynamic>? ?? const []),
-      subTaskIds: List<String>.from(map['subTaskIds'] as List<dynamic>? ?? const []), // Odczyt nowego pola
+      subTaskIds: List<String>.from(map['subTaskIds'] as List<dynamic>? ?? const []),
+      isRequired: map['isRequired'] as bool? ?? false,
+      isCheckPoint: map['isCheckPoint'] as bool? ?? false,
+      isMain: map['isMain'] as bool? ?? false,
+      requiresQrScan: map['requiresQrScan'] as bool? ?? false, // NOWOŚĆ
     );
   }
 
@@ -106,11 +125,6 @@ class WorkType {
     if (data == null) {
       throw StateError('Brak danych dla WorkType z dokumentu Firestore: ${doc.id}');
     }
-    // Tworzenie mapy z ID dokumentu i resztą danych
-    final mapData = {
-      'workTypeId': doc.id, // Ustawienie ID z dokumentu
-      ...data,
-    };
-    return WorkType.fromMap(mapData);
+    return WorkType.fromMap(data, docId: doc.id);
   }
 }

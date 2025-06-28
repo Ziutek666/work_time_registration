@@ -6,8 +6,9 @@ class ProjectMember {
   final String userId;
   final List<String> roles;
   final Timestamp dateAdded;
-  final List<String> areaIds; // <<<--- NOWE POLE: Lista ID obszarów, do których użytkownik ma dostęp
   final String? status; // Opcjonalne pole statusu
+  final List<String> areaIds; // <<<--- NOWE POLE: Lista ID obszarów, do których użytkownik ma dostęp
+
 
   ProjectMember({
     required this.id,

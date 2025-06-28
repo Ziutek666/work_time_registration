@@ -68,8 +68,6 @@ class ProjectService {
 
     try {
       final projects = await _projectRepository.getProjectsByIds(validProjectIds);
-      // Nie aktualizujemy tutaj _cachedUser, ponieważ dotyczy to potencjalnie wielu użytkowników,
-      // a _cachedUser jest tylko dla bieżącego.
       return projects;
     } on ProjectFetchException catch (e, s) {
       print('UserService: UserFetchException while fetching users by IDs: $e\n$s');

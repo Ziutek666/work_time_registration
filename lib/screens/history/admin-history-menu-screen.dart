@@ -35,13 +35,13 @@ class AdminHistoryMenuScreen extends StatelessWidget {
                 elevation: 4,
                 margin: const EdgeInsets.symmetric(vertical: 8.0),
                 child: ListTile(
-                  leading: const Icon(Icons.work_history),
+                  leading: const Icon(Icons.info_outline),
                   title: const Text('Historia pracy użytkowników'),
                   subtitle: const Text('Przeglądaj wpisy o pracy wszystkich użytkowników'),
                   trailing: const Icon(Icons.arrow_forward_ios),
                   onTap: () {
                     // Używamy push, aby umożliwić łatwy powrót przyciskiem "wstecz"
-                    context.push('/admin-work-history');
+                    context.push('/admin-history');
                   },
                 ),
               ),
@@ -50,12 +50,12 @@ class AdminHistoryMenuScreen extends StatelessWidget {
                 margin: const EdgeInsets.symmetric(vertical: 8.0),
                 child: ListTile(
                   leading: const Icon(Icons.info_outline),
-                  title: const Text('Historia informacji'),
-                  subtitle: const Text('Zobacz historię odczytanych informacji'),
+                  title: const Text('Analiza AI'),
+                  subtitle: const Text('Pytaj o dane z bazy danych'),
                   trailing: const Icon(Icons.arrow_forward_ios),
                   onTap: () {
                     // Używamy push, aby umożliwić łatwy powrót przyciskiem "wstecz"
-                    context.push('/admin-info-history');
+                    context.push('/ai-analysis');
                   },
                 ),
               ),

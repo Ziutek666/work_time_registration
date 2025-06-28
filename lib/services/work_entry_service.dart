@@ -12,8 +12,15 @@ class WorkEntryService {
 
   WorkEntryService(this._repository, this._informationService);
 
-  /// Rejestruje zdarzenie pracy (rozpoczęcie lub zakończenie).
-  /// Tworzy nowy wpis `WorkEntry` w bazie danych.
+  Future<List<WorkEntry>> getCompletedSubEntriesFor(String parentEntryId) async {
+    if (parentEntryId.isEmpty) return [];
+    try {
+      return await _repository.getCompletedSubEntriesFor(parentEntryId);
+    } catch (e) {
+      print('Błąd podczas pobierania ukończonych podzadań dla $parentEntryId: $e');
+      return [];
+    }
+  }
   Future<WorkEntry> recordWorkEvent({
     required String userId,
     required String projectId,
@@ -28,19 +35,30 @@ class WorkEntryService {
     if (userId.isEmpty || projectId.isEmpty || areaId.isEmpty || workTypeSnapshot.workTypeId.isEmpty) {
       throw ArgumentError('UserID, ProjectID, AreaID oraz WorkTypeID (w snapshot) nie mogą być puste.');
     }
-
-    if (isStartingEvent) {
-      final lastEventForThisWorkType = await _repository.getLastEventForWorkType(userId, projectId, workTypeSnapshot.workTypeId);
-      if (lastEventForThisWorkType != null && lastEventForThisWorkType.isStart) {
-        throw ActiveWorkEntryExistsException(
-            "Użytkownik $userId już ma aktywną pracę typu '${workTypeSnapshot.name}' w projekcie $projectId.");
+    if(!workTypeSnapshot.isCheckPoint) {
+      if (isStartingEvent) {
+        final lastEventForThisWorkType = await _repository
+            .getLastEventForWorkType(
+            userId, projectId, workTypeSnapshot.workTypeId);
+        if (lastEventForThisWorkType != null &&
+            lastEventForThisWorkType.isStart) {
+          throw ActiveWorkEntryExistsException(
+              "Użytkownik $userId już ma aktywną pracę typu '${workTypeSnapshot
+                  .name}' w projekcie $projectId.");
+        }
+      } else {
+        final lastEventForThisWorkType = await _repository
+            .getLastEventForWorkType(
+            userId, projectId, workTypeSnapshot.workTypeId);
+        if (lastEventForThisWorkType == null ||
+            !lastEventForThisWorkType.isStart) {
+          throw NoActiveWorkEntryToStopException(
+              "Brak aktywnej pracy typu '${workTypeSnapshot
+                  .name}' do zatrzymania dla użytkownika $userId w projekcie $projectId.");
+        }
       }
-    } else {
-      final lastEventForThisWorkType = await _repository.getLastEventForWorkType(userId, projectId, workTypeSnapshot.workTypeId);
-      if (lastEventForThisWorkType == null || !lastEventForThisWorkType.isStart) {
-        throw NoActiveWorkEntryToStopException(
-            "Brak aktywnej pracy typu '${workTypeSnapshot.name}' do zatrzymania dla użytkownika $userId w projekcie $projectId.");
-      }
+    }else{
+      isStartingEvent=false;
     }
 
     // Czas kliknięcia przez użytkownika
@@ -61,6 +79,9 @@ class WorkEntryService {
       workTypeIsPaid: workTypeSnapshot.isPaid,
       workTypeIsSubTask: workTypeSnapshot.isSubTask,
       workTypeInformationIds: workTypeSnapshot.informationIds,
+      workTypeIsCheckPoint: workTypeSnapshot.isCheckPoint, // DODANE
+      workTypeIsRequired: workTypeSnapshot.isRequired,     // DODANE
+      workTypeIsMain: workTypeSnapshot.isMain,             // DODANE
       // ZMIENIONE POLA CZASU
       eventActionTimestamp: resolvedActionTimestamp,
       saveTimestamp: resolvedSaveTimestamp,
@@ -129,6 +150,7 @@ class WorkEntryService {
     }
     try {
       WorkEntry? latestMainEvent = await _repository.getLatestMainEventForUserInProject(userId,projectId);
+      print('Latest Main Event: ${latestMainEvent?.workTypeId}');
       if (latestMainEvent != null && latestMainEvent.isStart) {
         return latestMainEvent;
       }
@@ -158,6 +180,15 @@ class WorkEntryService {
     }
     try {
       return await _repository.getWorkEntriesForProjectsBetweenDates(projectIds, startDate, endDate);
+    } catch (e) {
+      print('WorkEntryService Error fetching work entries for projects: $e');
+      return [];
+    }
+  }
+
+  Future<List<WorkEntry>> getWorkEntriesForOwnerBetweenDates(String ownerId, DateTime startDate, DateTime endDate) async {
+    try {
+      return await _repository.getWorkEntriesForOwnerBetweenDates(ownerId, startDate, endDate);
     } catch (e) {
       print('WorkEntryService Error fetching work entries for projects: $e');
       return [];
