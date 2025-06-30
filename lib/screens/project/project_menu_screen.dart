@@ -112,10 +112,19 @@ class _ProjectMenuScreenState extends State<ProjectMenuScreen> {
             'license': widget.license,
           }),
         ),
+        const SizedBox(height: 12),
+        _buildMenuOption(
+          theme: theme,
+          icon: Icons.calendar_month_outlined, // Bardziej pasująca ikona
+          title: 'Harmonogramy',
+          onTap: () => context.push('/schedules', extra: {
+            'project': widget.project,
+            'license': widget.license,
+          }),
+        ),
       ],
     );
   }
-
   Widget _buildMenuOption({
     required ThemeData theme, // Przekazanie theme
     required IconData icon,
@@ -124,7 +133,6 @@ class _ProjectMenuScreenState extends State<ProjectMenuScreen> {
   }) {
     final ColorScheme colorScheme = theme.colorScheme;
     final TextTheme textTheme = theme.textTheme;
-
     return Card(
       elevation: 3.0, // Subtelniejszy cień
       shape: RoundedRectangleBorder(

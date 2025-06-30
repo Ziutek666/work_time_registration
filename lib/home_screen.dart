@@ -211,7 +211,6 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  // MODYFIKACJA: Dodano logikę sprawdzania QR przy zakańczaniu pracy
   Future<void> _stopCurrentWork(Timestamp customEventTimestamp) async {
     if (_activeWorkEntry == null || !mounted) return;
 
