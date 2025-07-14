@@ -4,9 +4,68 @@ import 'package:flutter/material.dart';
 
 import '../models/information.dart';
 import '../models/information_category.dart';
+import '../models/user_app.dart';
 import '../services/information_category_service.dart';
+
 // --- Początek definicji Dialogów (przeniesiono tutaj dla kompletności przykładu) ---
 // W rzeczywistej aplikacji te funkcje powinny być w osobnym pliku, np. lib/widgets/dialogs.dart
+
+// NOWOŚĆ: Ogólny dialog potwierdzenia
+Future<void> showConfirmationDialog(
+    BuildContext context,
+    String title,
+    String message, {
+      required VoidCallback onConfirm,
+      String confirmButtonText = 'Potwierdź',
+    }) async {
+  final ThemeData theme = Theme.of(context);
+  return await showDialog<void>(
+    context: context,
+    barrierDismissible: false, // Użytkownik musi dokonać wyboru
+    builder: (BuildContext dialogContext) {
+      return AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
+        title: Row(
+          children: [
+            Icon(Icons.help_outline_rounded, color: theme.colorScheme.primary, size: 28),
+            const SizedBox(width: 12),
+            Expanded(child: Text(title, style: theme.textTheme.titleLarge?.copyWith(color: theme.colorScheme.primary))),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: ListBody(
+            children: <Widget>[
+              Text(message),
+            ],
+          ),
+        ),
+        actionsPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+        actions: <Widget>[
+          TextButton(
+            child: const Text('Anuluj'),
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+            },
+          ),
+          ElevatedButton(
+            child: Text(confirmButtonText),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: theme.colorScheme.primary,
+              foregroundColor: theme.colorScheme.onPrimary,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+            ),
+            onPressed: () {
+              // Najpierw wykonaj akcję, potem zamknij dialog
+              onConfirm();
+              Navigator.of(dialogContext).pop();
+            },
+          ),
+        ],
+      );
+    },
+  );
+}
+
 
 Future<bool?> showDeleteConfirmationDialog(BuildContext context, String title, String objectName) async {
   final ThemeData theme = Theme.of(context);
@@ -642,4 +701,61 @@ Future<Information?> showInformationDialog({
     textResponseController.dispose();
     return value;
   });
+}
+
+
+class UserSelectionDialog extends StatefulWidget {
+  final List<UserApp> allUsers;
+  final Set<UserApp> initiallySelected;
+
+  const UserSelectionDialog({required this.allUsers, required this.initiallySelected});
+
+  @override
+  State<UserSelectionDialog> createState() => UserSelectionDialogState();
+}
+
+class UserSelectionDialogState extends State<UserSelectionDialog> {
+  late Set<UserApp> _selectedUsers;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedUsers = Set.from(widget.initiallySelected);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Wybierz pracowników'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ListView.builder(
+          itemCount: widget.allUsers.length,
+          itemBuilder: (context, index) {
+            final user = widget.allUsers[index];
+            final isSelected = _selectedUsers.contains(user);
+            return CheckboxListTile(
+              title: Text(user.displayName ?? 'Brak nazwy'),
+              value: isSelected,
+              onChanged: (selected) {
+                setState(() {
+                  if (selected == true) {
+                    _selectedUsers.add(user);
+                  } else {
+                    _selectedUsers.remove(user);
+                  }
+                });
+              },
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Anuluj')),
+        FilledButton(onPressed: () => Navigator.of(context).pop(_selectedUsers),
+            child: const Text('Zatwierdź')),
+      ],
+    );
+  }
 }

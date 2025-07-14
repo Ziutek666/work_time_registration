@@ -54,6 +54,8 @@ dependencies:
   firebase_vertexai: ^1.8.0
   firebase_app_check: ^0.3.2+7
   geolocator: ^13.0.2
+  flutter_colorpicker: ^1.1.0
+  syncfusion_flutter_calendar: ^29.1.38
 
 
 

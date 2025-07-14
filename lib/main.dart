@@ -4,7 +4,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter_localizations/flutter_localizations.dart'; // Import dla lokalizacji
-
+import 'package:timezone/data/latest_all.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 import 'firebase_options.dart'; // Plik generowany przez FlutterFire CLI
 import 'router/app_router.dart'; // Założenie, że ten plik istnieje i konfiguruje appRouter
 
@@ -13,6 +14,13 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // ZMIANA: Inicjalizacja danych o strefach czasowych
+  tz.initializeTimeZones();
+  // Opcjonalnie, ale to dobra praktyka - ustawienie domyślnej lokalnej strefy czasowej
+  tz.setLocalLocation(tz.getLocation('Europe/Warsaw'));
+
   // Initialize App Check!
   const reCaptchaV3SiteKey = '6LfYi24rAAAAACNrcPILqXEvdklRvawgX_typzux';
   await FirebaseAppCheck.instance.activate(

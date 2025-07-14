@@ -21,7 +21,7 @@ class Member {
   final String? status;
 
   Member({
-    required this.memberId, // Zmieniono z 'id' na 'memberId'
+    required this.memberId,
     required this.userId,
     required this.ownerId,
     required this.projects,
@@ -29,14 +29,11 @@ class Member {
     this.status,
   });
 
-  /// Tworzy obiekt Member z dokumentu Firestore.
-  factory Member.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    Map<String, dynamic> data = doc.data() ?? {};
+  factory Member.fromMap(Map<String, dynamic> data, {String? docId}) {
     var projectsListFromData = data['projects'] as List<dynamic>? ?? [];
 
     return Member(
-      // Zmieniono z 'id' na 'memberId'
-      memberId: doc.id,
+      memberId: docId ?? data['memberId'] as String? ?? '', // Użyj docId jeśli jest, inaczej spróbuj z mapy
       userId: data['userId'] as String? ?? '',
       ownerId: data['ownerId'] as String? ?? '',
       projects: projectsListFromData
@@ -47,6 +44,14 @@ class Member {
       status: data['status'] as String?,
     );
   }
+
+  /// Tworzy obiekt Member z dokumentu Firestore.
+  factory Member.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    // Wykorzystujemy nowo utworzoną metodę fromMap, aby uniknąć powtarzania kodu.
+    return Member.fromMap(doc.data() ?? {}, docId: doc.id);
+  }
+
+  get accessibleAreaIds => null;
 
   /// Konwertuje obiekt Member na mapę do zapisu w Firestore.
   Map<String, dynamic> toMap() {
@@ -61,14 +66,17 @@ class Member {
 
   /// Metoda pomocnicza do tworzenia kopii obiektu ze zmienionymi wartościami.
   Member copyWith({
+    String? memberId, // Dodano możliwość kopiowania memberId
+    String? userId,   // Dodano możliwość kopiowania userId
+    String? ownerId,  // Dodano możliwość kopirowania ownerId
     List<ProjectAccess>? projects,
     Timestamp? dateAdded,
     String? status,
   }) {
     return Member(
-      memberId: this.memberId, // Zmieniono z 'id' na 'memberId'
-      userId: this.userId,
-      ownerId: this.ownerId,
+      memberId: memberId ?? this.memberId,
+      userId: userId ?? this.userId,
+      ownerId: ownerId ?? this.ownerId,
       projects: projects ?? this.projects,
       dateAdded: dateAdded ?? this.dateAdded,
       status: status ?? this.status,

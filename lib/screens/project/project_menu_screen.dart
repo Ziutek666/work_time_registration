@@ -116,8 +116,8 @@ class _ProjectMenuScreenState extends State<ProjectMenuScreen> {
         _buildMenuOption(
           theme: theme,
           icon: Icons.calendar_month_outlined, // Bardziej pasująca ikona
-          title: 'Harmonogramy',
-          onTap: () => context.push('/schedules', extra: {
+          title: 'Grafiki',
+          onTap: () => context.push('/schedule_templates', extra: {
             'project': widget.project,
             'license': widget.license,
           }),

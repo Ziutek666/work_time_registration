@@ -1,15 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../models/project.dart';
-import '../../models/area.dart';
 import '../../models/work_type.dart'; // Dodano import dla WorkType
 import '../../services/area_service.dart';
-import '../../services/work_type_service.dart'; // Dodano import dla WorkTypeService
 import '../../widgets/dialogs.dart';
-
-// Założenie: areaService i workTypeService są dostępne globalnie lub przez DI
-// final AreaService areaService = AreaService();
-// final WorkTypeService workTypeService = WorkTypeService(WorkTypeRepository());
 
 
 class CreateAreaScreen extends StatefulWidget {

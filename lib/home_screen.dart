@@ -712,11 +712,18 @@ class _HomeScreenState extends State<HomeScreen>
                   context.go('/edit-user');
                 }),
             ListTile(
-                leading: const Icon(Icons.calendar_month_outlined),
+                leading: const Icon(Icons.event),
                 title: const Text('Historia'),
                 onTap: () {
                   Navigator.pop(context);
                   context.go('/user-history-menu');
+                }),
+            ListTile(
+                leading: const Icon(Icons.calendar_month_outlined),
+                title: const Text('Grafiki'),
+                onTap: () {
+                  Navigator.pop(context);
+                  context.push('/user-schedule-calendar');
                 }),
             const Divider(),
             ListTile(

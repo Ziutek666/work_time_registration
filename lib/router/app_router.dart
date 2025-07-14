@@ -7,7 +7,6 @@ import 'package:work_time_registration/screens/area/select_area_for_user_screen.
 import 'package:work_time_registration/screens/history/admin-history.dart';
 import 'package:work_time_registration/screens/history/user-history-menu-screen.dart';
 import 'package:work_time_registration/screens/members/edit_member_screen.dart';
-import 'package:work_time_registration/services/area_service.dart';
 import 'package:work_time_registration/user/edit_user_screen.dart';
 import '../home_screen.dart';
 import '../models/area.dart';
@@ -17,6 +16,7 @@ import '../models/information_category.dart';
 import '../models/license.dart';
 import '../models/member.dart';
 import '../models/project.dart';
+import '../models/schedule_template.dart';
 import '../models/work_entry.dart';
 import '../models/work_type.dart';
 import '../screens/administration/administration-menu-screen.dart';
@@ -42,12 +42,20 @@ import '../screens/project/create_project_screen.dart';
 import '../screens/project/edit_project_screen.dart';
 import '../screens/project/my_projects_screen.dart';
 import '../screens/project/project_menu_screen.dart';
+import '../screens/schedule/admin_schedule_calendar_screen.dart';
+import '../screens/schedule/combined_schedule_calendar_screen.dart';
+import '../screens/schedule/create_schedule_template_screen.dart';
+import '../screens/schedule/edit_schedule_template_screen.dart';
+import '../screens/schedule/schedule_templates_screen.dart';
+import '../screens/schedule/user_schedule_calendar_screen.dart';
 import '../screens/work_type/area_work_types_screen.dart';
 import '../screens/work_type/create_work_type_screen.dart';
 import '../screens/codeQr/edit_code_qr_screen.dart';
 import '../screens/work_type/edit_work_type_screen.dart';
 import '../screens/work_type/select_work_type_screen.dart';
 import '../screens/work_type/work_types_screen.dart';
+
+
 import '../services/user_service.dart';
 import '../user/user_create_data_screen.dart';// Założenie, że VerifyEmailScreen jest w osobnym pliku
 
@@ -277,6 +285,58 @@ final appRouter = GoRouter(
         final project = extra['project'] as Project;
         final license = extra['license'] as License;
         return CreateCodeQrScreen(project: project, license: license,);
+      },
+    ),
+    GoRoute(
+      path: '/schedule_templates',
+      builder: (context, state) {
+        final extra = state.extra as Map<String, dynamic>;
+        final project = extra['project'] as Project;
+        final license = extra['license'] as License;
+        return ScheduleTemplatesScreen(project: project,license: license,);
+      },
+    ),
+    GoRoute(
+      path: '/create_schedule_template',
+      builder: (context, state) {
+        final extra = state.extra as Map<String, dynamic>;
+        final project = extra['project'] as Project;
+        final license = extra['license'] as License;
+        return CreateScheduleTemplateScreen(project: project, license: license,);
+      },
+    ),
+    GoRoute(
+      path: '/edit_schedule_template',
+      builder: (context, state) {
+        final extra = state.extra as Map<String, dynamic>;
+        final project = extra['project'] as Project;
+        final template = extra['template']  as ScheduleTemplate;
+        return EditScheduleTemplateScreen(template: template,project: project,);
+      },
+    ),
+    GoRoute(
+      path: '/schedule-calendar',
+      builder: (context, state) {
+        final extra = state.extra as Map<String, dynamic>;
+        final project = extra['project'] as Project;
+        final template = extra['template']  as ScheduleTemplate;
+        return AdminScheduleCalendarScreen(template: template);
+      },
+    ),
+    GoRoute(
+      path: '/user-schedule-calendar',
+      builder: (context, state) {
+        return UserScheduleCalendarScreen();
+      },
+    ),
+
+
+    GoRoute(
+      path: '/combined-schedule-calendar',
+      builder: (context, state) {
+        // Odczytujemy przekazaną LISTĘ szablonów
+        final templates = state.extra as List<ScheduleTemplate>;
+        return CombinedScheduleCalendarScreen(templates: templates);
       },
     ),
     GoRoute(

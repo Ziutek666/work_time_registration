@@ -8,8 +8,6 @@ class MembersRepository {
 
   MembersRepository() {
     _membersRef = _firestore.collection('members').withConverter<Member>(
-      // Konwertery pozostają bez zmian, ponieważ model Member
-      // prawidłowo obsługuje mapowanie danych z i do Firestore.
       fromFirestore: (snapshot, _) => Member.fromFirestore(snapshot),
       toFirestore: (member, _) => member.toMap(),
     );
@@ -18,8 +16,40 @@ class MembersRepository {
   /// Tworzy unikalne ID dokumentu na podstawie ID użytkownika i ID właściciela.
   String _createDocId(String userId, String ownerId) => '${userId}_${ownerId}';
 
-  /// Pobiera pojedynczy dokument członkostwa na podstawie userId i ownerId.
-  /// Zwraca `null`, jeśli dokument nie istnieje.
+  /// NOWA METODA: Pobiera dokumenty członkostwa dla konkretnych użytkowników w danym projekcie.
+  Future<List<Member>> fetchMembershipsForProject(String projectId, List<String> userIds) async {
+    if (userIds.isEmpty) {
+      return [];
+    }
+
+    try {
+      // ETAP 1: Pobierz wszystkie dokumenty członkostwa dla podanych użytkowników.
+      // Nie możemy filtrować po projectId na serwerze, ponieważ jest zagnieżdżone w tablicy.
+      // To zapytanie jest wydajne i wymaga jedynie prostego indeksu na polu 'userId'.
+      final querySnapshot = await _firestore
+          .collection('members') // Upewnij się, że nazwa kolekcji jest poprawna
+          .where('userId', whereIn: userIds)
+          .get();
+
+      final allMembershipsForUsers = querySnapshot.docs
+          .map((doc) => Member.fromMap(doc.data(), docId: doc.id))
+          .toList();
+
+      // ETAP 2: Filtruj wyniki po stronie klienta (w aplikacji).
+      final filteredMemberships = allMembershipsForUsers.where((member) {
+        // Sprawdź, czy lista projektów tego członka zawiera nasz docelowy projectId.
+        // Używamy metody `any()`, która jest do tego idealna.
+        return member.projects.any((projectAccess) =>
+        projectAccess.projectId == projectId);
+      }).toList();
+
+      return filteredMemberships;
+    } catch (e) {
+      print("Błąd podczas pobierania członkostw dla projektu: $e");
+      rethrow;
+    }
+  }
+
   Future<Member?> getMembership({required String userId, required String ownerId}) async {
     final docId = _createDocId(userId, ownerId);
     try {

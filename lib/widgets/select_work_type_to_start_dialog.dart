@@ -69,17 +69,14 @@ class _SelectWorkTypeToStartDialogState extends State<SelectWorkTypeToStartDialo
     }
     setState(() { _isProcessingAction = true; });
 
-    // NOWOŚĆ: Sprawdzenie, czy zadanie wymaga skanowania QR przy zakończeniu
     try {
       if (selectedWorkType.requiresQrScan == true) {
         if (!mounted) return;
+        final rawValue = await Navigator.push<String>(context, MaterialPageRoute(fullscreenDialog: true, builder: (context) => const QrScannerScreen()));
 
-        final rawValue = await Navigator.push<String>(
-            context,
-            MaterialPageRoute(
-                fullscreenDialog: true,
-                builder: (context) => const QrScannerScreen()));
-        if (rawValue == null) return;
+        if (rawValue == null) {
+          throw Exception("Skanowanie kodu QR zostało anulowane.");
+        }
 
         final Map<String, dynamic> decodedData = jsonDecode(rawValue);
         final String? codeId = decodedData['i'];
@@ -88,30 +85,24 @@ class _SelectWorkTypeToStartDialogState extends State<SelectWorkTypeToStartDialo
         final code = await codeQrService.getCodeQrById(codeId);
         if (code == null) throw Exception("Kod QR nie został znaleziony w systemie.");
 
-        if ((code.projectId != selectedWorkType.projectId)||(!code.workTypeIds.contains(selectedWorkType.workTypeId))) {
-          throw Exception("Zeskanowany kod QR pochodzi z innego projektu lub innego zadania. Akcja została anulowana.");
+        if ((code.projectId != selectedWorkType.projectId) || (!code.workTypeIds.contains(selectedWorkType.workTypeId))) {
+          throw Exception("Zeskanowany kod QR pochodzi z innego projektu lub innego zadania.");
         }
-
 
         if (code.checkLocation == true) {
-          await _checkLocation(code);
+          // ZMIANA: Przekazujemy BuildContext do funkcji i sprawdzamy jej wynik
+          final bool isLocationValid = await _checkLocation(context, code);
+          // POPRAWKA: Jeśli lokalizacja jest nieprawidłowa, resetujemy stan i kończymy działanie
+          if (!isLocationValid) {
+            setState(() { _isProcessingAction = false; });
+            return;
+          }
         }
-
-
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Kod QR zweryfikowany.'),
-            backgroundColor: Colors.green,
-          ));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Kod QR zweryfikowany.'), backgroundColor: Colors.green));
         }
       }
-    } catch (e) {
-      if (mounted) showErrorDialog(context, 'Błąd Walidacji Kodu QR', e.toString());
-      return; // Przerwij zakańczanie pracy w przypadku błędu
-    }
-    // Koniec nowej logiki
 
-    try {
       // Uproszczona logika - używamy gettera isMain
       if (!selectedWorkType.isMain) {
         throw Exception("Tylko zadania główne mogą być rozpoczynane w ten sposób.");
@@ -125,8 +116,6 @@ class _SelectWorkTypeToStartDialogState extends State<SelectWorkTypeToStartDialo
         return;
       }
 
-      // Ta metoda musi zostać zaktualizowana w Twoim serwisie, aby poprawnie
-      // mapować nowe pola z `selectedWorkType` do `WorkEntry` (jak pokazano wyżej)
       await workEntryService.recordWorkEvent(
         userId: currentUser.uid,
         projectId: widget.projectId,
@@ -137,41 +126,54 @@ class _SelectWorkTypeToStartDialogState extends State<SelectWorkTypeToStartDialo
       );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Rozpoczęto: ${selectedWorkType.name}'),
-          backgroundColor: Colors.green,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Rozpoczęto: ${selectedWorkType.name}'), backgroundColor: Colors.green));
         Navigator.of(context).pop(true);
       }
     } catch (e) {
       debugPrint("Błąd podczas wyboru typu pracy: $e");
       if (mounted) await showErrorDialog(context, "Błąd Operacji", e.toString());
+      // POPRAWKA: Upewniamy się, że stan jest resetowany również w przypadku ogólnego błędu
+      setState(() { _isProcessingAction = false; });
     } finally {
-      if (mounted) setState(() { _isProcessingAction = false; });
+      // Ten blok `finally` jest teraz "na wszelki wypadek", główne ścieżki błędów resetują stan wcześniej.
+      if (mounted && _isProcessingAction) {
+        setState(() { _isProcessingAction = false; });
+      }
     }
   }
-  Future<void> _checkLocation(CodeQr scannedCode) async {
-    if (scannedCode.location == null || scannedCode.maxDistanceInMeters == null) {
-      throw Exception("Kod QR wymaga weryfikacji lokalizacji, ale nie ma zapisanych współrzędnych.");
-    }
 
-    final currentPosition = await LocationService.determinePosition();
+  // ZMIANA: Funkcja zwraca Future<bool> i sama pokazuje błędy.
+  Future<bool> _checkLocation(BuildContext dialogContext, CodeQr scannedCode) async {
+    try {
+      if (scannedCode.location == null || scannedCode.maxDistanceInMeters == null) {
+        await showErrorDialog(dialogContext, "Błąd Konfiguracji", "Kod QR wymaga weryfikacji lokalizacji, ale nie ma zapisanych współrzędnych.");
+        return false;
+      }
 
-    final distance = Geolocator.distanceBetween(
-      currentPosition.latitude,
-      currentPosition.longitude,
-      scannedCode.location!.latitude,
-      scannedCode.location!.longitude,
-    );
+      final currentPosition = await LocationService.determinePosition();
+      final distance = Geolocator.distanceBetween(
+        currentPosition.latitude,
+        currentPosition.longitude,
+        scannedCode.location!.latitude,
+        scannedCode.location!.longitude,
+      );
 
-    if (distance > scannedCode.maxDistanceInMeters!) {
-      throw Exception("Jesteś zbyt daleko od lokalizacji przypisanej do tego kodu QR. Odległość: ${distance.round()} m, dozwolona: ${scannedCode.maxDistanceInMeters} m.");
-    }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      if (distance > scannedCode.maxDistanceInMeters!) {
+        await showErrorDialog(dialogContext, "Nieprawidłowa Lokalizacja", "Jesteś zbyt daleko od punktu. Odległość: ${distance.round()} m, dozwolona: ${scannedCode.maxDistanceInMeters} m.");
+        return false;
+      }
+
+      // Jeśli wszystko jest w porządku
+      ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(
         content: Text('Lokalizacja zweryfikowana pomyślnie.'),
         backgroundColor: Colors.green,
       ));
+      return true;
+
+    } catch (e) {
+      // Obsługa błędów z Geolocator itp.
+      await showErrorDialog(dialogContext, "Błąd Lokalizacji", "Nie udało się zweryfikować lokalizacji: ${e.toString()}");
+      return false;
     }
   }
 
@@ -206,7 +208,6 @@ class _SelectWorkTypeToStartDialogState extends State<SelectWorkTypeToStartDialo
     if (_isLoading) return const Center(child: CircularProgressIndicator());
     if (_errorMessage != null) return Center(child: Text(_errorMessage!, style: TextStyle(color: theme.colorScheme.error)));
 
-    // Filtrujemy listę do wyświetlenia, używając gettera `isMain`
     final mainWorkTypes = _availableWorkTypes.where((wt) => wt.isMain).toList();
 
     if (mainWorkTypes.isEmpty) {

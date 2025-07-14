@@ -11,15 +11,21 @@ import 'package:printing/printing.dart';
 import '../../models/area.dart';
 import '../../models/information_category.dart';
 import '../../models/project.dart';
+import '../../models/schedule_assignments.dart';
+import '../../models/schedule_template.dart';
 import '../../models/user_app.dart';
+import '../../models/user_availability.dart';
 import '../../models/work_entry.dart';
 import '../../services/area_service.dart';
+import '../../services/availability_service.dart';
 import '../../services/members_service.dart';
 import '../../services/project_service.dart';
+import '../../services/schedule_assignment_service.dart';
+import '../../services/schedule_template_service.dart';
 import '../../services/user_service.dart';
 import '../../services/work_entry_service.dart';
 import '../../widgets/dialogs.dart';
-
+import 'package:collection/collection.dart';
 /// Reprezentuje pojedynczą sesję pracy lub zdarzenie typu CheckPoint.
 class WorkSession {
   final WorkEntry startEntry;
@@ -76,6 +82,9 @@ class _AiAnalysisScreenState extends State<AiAnalysisScreen> {
   Map<String, String> _userNamesMap = {};
   Map<String, String> _projectNamesMap = {};
   Map<String, String> _areaNamesMap = {};
+  List<UserAvailability> _userAvailabilities = [];
+  List<ScheduleAssignment> _scheduleAssignments = [];
+  Map<String, ScheduleTemplate> _scheduleTemplatesMap = {}; // Do mapowania ID szablonu na jego dane
 
   // --- Stan AI ---
   final TextEditingController _aiQueryController = TextEditingController();
@@ -140,22 +149,72 @@ class _AiAnalysisScreenState extends State<AiAnalysisScreen> {
     if (_selectedDateRange == null || _availableUsers.isEmpty) return;
     setState(() => _isLoading = true);
     try {
-      final futures = _availableUsers.map((user) =>
-          workEntryService.getWorkEntriesForUserBetweenDates(
-              user.uid!, _selectedDateRange!.start, _selectedDateRange!.end.add(const Duration(days: 1))
-          )
-      ).toList();
-      final results = await Future.wait(futures);
-      _allWorkEntries = results.expand((list) => list).toList();
+      final userIds = _availableUsers.map((user) => user.uid!).toList();
+
+      // 1. Przygotuj wszystkie asynchroniczne operacje pobierania danych
+      // Pobierz wpisy o pracy i od razu spłaszcz listę list w jedną listę
+      final Future<List<WorkEntry>> allWorkEntriesFuture = Future.wait(
+          userIds.map((id) => workEntryService.getWorkEntriesForUserBetweenDates(
+              id, _selectedDateRange!.start, _selectedDateRange!.end.add(const Duration(days: 1))
+          ))
+      ).then((listOfLists) => listOfLists.expand((list) => list).toList());
+
+      // Pobierz deklaracje dyspozycyjności
+      final Future<List<UserAvailability>> availabilitiesFuture =
+      availabilityService.getAvailabilitiesForUsers(userIds);
+
+      // Pobierz przypisane harmonogramy
+      final Future<List<ScheduleAssignment>> assignmentsFuture =
+      scheduleAssignmentService.getAllAssignmentsForUsers(userIds);
+
+      // 2. Uruchom wszystkie operacje pobierania równocześnie
+      final results = await Future.wait([
+        allWorkEntriesFuture,
+        availabilitiesFuture,
+        assignmentsFuture,
+      ]);
+
+      // 3. Przypisz wyniki do stanu (upewniając się, że widżet nadal istnieje)
+      if (!mounted) return;
+
+      // Używamy `setState` tylko raz na końcu, aby zaktualizować UI
+      setState(() {
+        _allWorkEntries = results[0] as List<WorkEntry>;
+        _userAvailabilities = results[1] as List<UserAvailability>;
+        _scheduleAssignments = results[2] as List<ScheduleAssignment>;
+      });
+
+      // 4. Pobierz dane zależne i zaktualizuj filtry
+      await _fetchScheduleTemplateDetails(_scheduleAssignments);
       await _ensureProjectAndAreaNamesAvailable(_allWorkEntries);
       _updateAvailableFilters();
+
     } catch (e) {
-      if (mounted) setState(() => _errorMessage = "Błąd przetwarzania historii: ${e.toString()}");
+      if (mounted) {
+        setState(() => _errorMessage = "Błąd przetwarzania historii: ${e.toString()}");
+      }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
+// Dodaj nową funkcję pomocniczą do pobierania szablonów
+  Future<void> _fetchScheduleTemplateDetails(List<ScheduleAssignment> assignments) async {
+    final templateIds = assignments.map((a) => a.scheduleTemplateId).toSet();
+    if (templateIds.isEmpty) return;
 
+    for (final templateId in templateIds) {
+      if (!_scheduleTemplatesMap.containsKey(templateId)) {
+        try {
+          final template = await scheduleTemplateService.getTemplate(templateId);
+          _scheduleTemplatesMap[templateId] = template;
+        } catch(e) {
+          print("Nie udało się pobrać szablonu $templateId: $e");
+        }
+      }
+    }
+  }
   void _updateAvailableFilters() {
     final projectIdsInView = _allWorkEntries.map((e) => e.projectId).toSet();
     _loadProjectsForFilter(projectIdsInView.toList());
@@ -221,7 +280,6 @@ class _AiAnalysisScreenState extends State<AiAnalysisScreen> {
     }
   }
 
-  // NOWE FUNKCJE ZAKRESÓW DAT
   DateTimeRange _getTodayRange() {
     final now = DateTime.now();
     return DateTimeRange(start: DateTime(now.year, now.month, now.day), end: now);
@@ -252,53 +310,153 @@ class _AiAnalysisScreenState extends State<AiAnalysisScreen> {
     _fetchAndProcessEntries();
   }
 
-  // #endregion
-
-  // #region Logika AI
   String _generateStringForAi() {
     final buffer = StringBuffer();
-    final DateFormat dateFormat = DateFormat('yyyy-MM-dd HH:mm', 'pl_PL');
+    final DateFormat dateTimeFormat = DateFormat('yyyy-MM-dd HH:mm', 'pl_PL');
+    final DateFormat dateFormat = DateFormat('yyyy-MM-dd', 'pl_PL');
 
+    // --- SEKCJA 1: GŁÓWNY KONTEKST ANALIZY ---
+    // ... (bez zmian)
     buffer.writeln("--- KONTEKST ANALIZY ---");
-    buffer.writeln("Zakres dat: ${dateFormat.format(_selectedDateRange!.start)} - ${dateFormat.format(_selectedDateRange!.end)}");
-    if (_selectedUser != null) buffer.writeln("Pracownik: ${_selectedUser!.displayName ?? _selectedUser!.uid}");
-    if (_selectedFilterProject != null) buffer.writeln("Projekt: ${_selectedFilterProject!.name}");
-    if (_selectedFilterArea != null) buffer.writeln("Obszar: ${_selectedFilterArea!.name}");
-    buffer.writeln("\n--- SZCZEGÓŁOWE ZDARZENIA ---");
+    buffer.writeln("Data dzisiejsza: ${dateFormat.format(DateTime.now())}");
+    buffer.writeln("Analizowany zakres dat: ${dateFormat.format(_selectedDateRange!.start)} - ${dateFormat.format(_selectedDateRange!.end)}");
+    if (_selectedUser != null) {
+      buffer.writeln("Filtrowanie po pracowniku: ${_selectedUser!.displayName ?? _selectedUser!.uid} (ID: ${_selectedUser!.uid})");
+    }
+    if (_selectedFilterProject != null) {
+      buffer.writeln("Filtrowanie po projekcie: ${_selectedFilterProject!.name} (ID: ${_selectedFilterProject!.projectId})");
+    }
+    if (_selectedFilterArea != null) {
+      buffer.writeln("Filtrowanie po obszarze: ${_selectedFilterArea!.name} (ID: ${_selectedFilterArea!.areaId})");
+    }
 
-    List<WorkEntry> tempFiltered = _allWorkEntries.where((e) {
-      if (_selectedUser != null && e.userId != _selectedUser!.uid) return false;
-      if (_selectedFilterProject != null && e.projectId != _selectedFilterProject!.projectId) return false;
-      if (_selectedFilterArea != null && e.areaId != _selectedFilterArea!.areaId) return false;
+
+    // --- SEKCJA 2: PRZYPISANE HARMONOGRAMY ---
+    // ... (bez zmian)
+    buffer.writeln("\n--- PRZYPISANE HARMONOGRAMY W ZAKRESIE ---");
+    final relevantAssignments = _scheduleAssignments.where((assignment) {
+      bool userMatch = _selectedUser == null || assignment.targetId == _selectedUser!.uid;
+      bool dateMatch = assignment.startDate.isAfter(_selectedDateRange!.start.subtract(const Duration(days: 1))) &&
+          assignment.startDate.isBefore(_selectedDateRange!.end.add(const Duration(days: 1)));
+      bool projectMatch = _selectedFilterProject == null || (_scheduleTemplatesMap[assignment.scheduleTemplateId]?.projectId == _selectedFilterProject!.projectId);
+      return userMatch && dateMatch && projectMatch;
+    }).toList();
+
+    if (relevantAssignments.isEmpty) {
+      buffer.writeln("Brak przypisanych harmonogramów spełniających kryteria.");
+    } else {
+      for (final assignment in relevantAssignments) {
+        final userName = _userNamesMap[assignment.targetId] ?? 'Nieznany Użytkownik';
+        final template = _scheduleTemplatesMap[assignment.scheduleTemplateId];
+        final projectName = _projectNamesMap[template?.projectId] ?? 'Nieznany Projekt';
+
+        buffer.writeln(
+            "Pracownik: $userName (ID: ${assignment.targetId}); "
+                "Data i godzina startu pracy wg harmonogramu: ${dateTimeFormat.format(assignment.startDate)}; "
+                "Data i godzina końca pracy wg harmonogramu: ${dateTimeFormat.format(assignment.endDate)}; "
+                "Projekt: $projectName (ID: ${template?.projectId ?? 'brak'}); "
+                "Nazwa szablonu: ${template?.name ?? 'Nieznany szablon'}; "
+                "ID szablonu: ${assignment.scheduleTemplateId};");
+      }
+    }
+
+
+    // --- SEKCJA 3: DEKLARACJE DYSPOZYCYJNOŚCI (FINALNA WERSJA) ---
+    buffer.writeln("\n--- DEKLARACJE DYSPOZYCYJNOŚCI ---");
+    final relevantAvailabilities = _userAvailabilities.where((availability) {
+      bool userMatch = _selectedUser == null || availability.userId == _selectedUser!.uid;
+      bool projectMatch = _selectedFilterProject == null || availability.projectId == _selectedFilterProject!.projectId;
+      return userMatch && projectMatch;
+    }).toList();
+
+    if(relevantAvailabilities.isEmpty) {
+      buffer.writeln("Brak deklaracji dyspozycyjności spełniających kryteria.");
+    } else {
+      for (final availability in relevantAvailabilities) {
+        final userName = _userNamesMap[availability.userId] ?? 'Nieznany Użytkownik';
+        final projectName = _projectNamesMap[availability.projectId] ?? 'Nieznany Projekt';
+        final status = availability.isAvailable ? 'Dostępny' : 'Niedostępny';
+
+        // NOWA LOGIKA: Znajdź szablon i pobierz z niego godziny startu i końca
+        final template = _scheduleTemplatesMap[availability.scheduleTemplateId];
+        String startTimeStr = "Nieznany czas";
+        String endTimeStr = "Nieznany czas";
+
+        if (template != null && availability.blockIndex < template.scheduleBlocks.length) {
+          final timeBlock = template.scheduleBlocks[availability.blockIndex];
+
+          // Łączymy datę z `UserAvailability` z godziną i minutą z `TimeBlock`
+          final fullStartTime = DateTime(
+            availability.date.year,
+            availability.date.month,
+            availability.date.day,
+            timeBlock.startTime.hour,
+            timeBlock.startTime.minute,
+          );
+          final fullEndTime = DateTime(
+            availability.date.year,
+            availability.date.month,
+            availability.date.day,
+            timeBlock.endTime.hour,
+            timeBlock.endTime.minute,
+          );
+
+          startTimeStr = dateTimeFormat.format(fullStartTime);
+          endTimeStr = dateTimeFormat.format(fullEndTime);
+        }
+
+        buffer.writeln(
+            "Pracownik: $userName (ID: ${availability.userId}); "
+                "Status: $status; "
+                "Projekt: $projectName (ID: ${availability.projectId}); "
+                "Początek bloku dostępności: $startTimeStr; "
+                "Koniec bloku dostępności: $endTimeStr; "
+                "Dotyczy szablonu: ${template?.name ?? 'nieznany'} (ID: ${availability.scheduleTemplateId}, Blok: ${availability.blockIndex})"
+        );
+      }
+    }
+
+    // --- SEKCJA 4: SZCZEGÓŁOWE ZDARZENIA (CZAS PRACY) ---
+    // ... (bez zmian)
+    buffer.writeln("\n--- SZCZEGÓŁOWE ZDARZENIA (CZAS PRACY) ---");
+    List<WorkEntry> tempFilteredEntries = _allWorkEntries.where((entry) {
+      if (_selectedUser != null && entry.userId != _selectedUser!.uid) return false;
+      if (_selectedFilterProject != null && entry.projectId != _selectedFilterProject!.projectId) return false;
+      if (_selectedFilterArea != null && entry.areaId != _selectedFilterArea!.areaId) return false;
       return true;
     }).toList();
 
-    tempFiltered.sort((a, b) => a.eventActionTimestamp.compareTo(b.eventActionTimestamp));
+    tempFilteredEntries.sort((a, b) => a.eventActionTimestamp.compareTo(b.eventActionTimestamp));
 
-    if (tempFiltered.isEmpty) {
-      buffer.writeln("Brak zdarzeń spełniających kryteria filtrowania.");
-      return buffer.toString();
-    }
+    if (tempFilteredEntries.isEmpty) {
+      buffer.writeln("Brak zarejestrowanych zdarzeń pracy spełniających kryteria.");
+    } else {
+      for (final entry in tempFilteredEntries) {
+        final userName = _userNamesMap[entry.userId] ?? 'Nieznany Użytkownik';
+        final eventDateTime = dateTimeFormat.format(entry.eventActionTimestamp.toDate());
+        final eventType = entry.isStart ? 'Start Pracy' : 'Stop Pracy';
+        final projectName = _projectNamesMap[entry.projectId] ?? 'Nieznany Projekt';
+        final areaName = _areaNamesMap[entry.areaId] ?? 'Nieznany Obszar';
 
-    for (final entry in tempFiltered) {
-      final userName = _userNamesMap[entry.userId] ?? entry.userId;
-      final eventDateTime = dateFormat.format(entry.eventActionTimestamp.toDate());
-      final eventType = entry.isStart ? 'Start' : 'Stop';
-      final projectName = _projectNamesMap[entry.projectId] ?? 'Nieznany projekt';
-      final areaName = _areaNamesMap[entry.areaId] ?? 'Nieznany obszar';
+        buffer.write(
+            "Pracownik: $userName (ID: ${entry.userId}); "
+                "Czas zdarzenia: $eventDateTime; "
+                "Typ: $eventType; "
+                "Zadanie: ${entry.workTypeName}; "
+                "Projekt: $projectName (ID: ${entry.projectId}); "
+                "Obszar: $areaName (ID: ${entry.areaId}); "
+                "Opis: ${entry.description ?? 'brak'}");
 
-      buffer.write(
-          "Pracownik: $userName; Data: $eventDateTime; Typ: $eventType; Zadanie: ${entry.workTypeName}; Projekt: $projectName; Obszar: $areaName; Opis: ${entry.description ?? 'brak'}");
-
-      String informations = '';
-      if (entry.relatedInformations != null && entry.relatedInformations!.isNotEmpty) {
-        for (final info in entry.relatedInformations!) {
-          informations += info.toAiString();
+        if (entry.relatedInformations != null && entry.relatedInformations!.isNotEmpty) {
+          final infoString = entry.relatedInformations!.map((info) => info.toAiString()).join(", ");
+          buffer.write("; Dodatkowe informacje: $infoString");
         }
-        buffer.write("; Informacje: $informations");
+        buffer.writeln();
       }
-      buffer.writeln();
     }
+
+
+    print(buffer.toString());
     return buffer.toString();
   }
 
@@ -323,11 +481,14 @@ class _AiAnalysisScreenState extends State<AiAnalysisScreen> {
       // Krok 2: Zbuduj pełny prompt zawierający instrukcje, dane i całą historię rozmowy
       final promptBuffer = StringBuffer();
 
-      // Instrukcja systemowa dla AI
-      promptBuffer.writeln("Jesteś ekspertem w analizie danych o czasie pracy. Twoim zadaniem jest odpowiadanie na pytania użytkownika na podstawie dostarczonych danych oraz kontekstu poprzedniej rozmowy. Odpowiadaj po polsku, profesjonalnie i zwięźle. "
-          "Jeżeli użytkownik pyta jak długo ktoś pracował to trzeba obliczyć czas jaki upłynoł od start do stop zadania głównego (main)"
-          "Jeżeli pyta jak długo ktoś był na przerwie to obliczasz od start do stop w kontekście jednego zadania głównego");
-      promptBuffer.writeln();
+      promptBuffer.writeln("Jesteś ekspertem w analizie danych o czasie pracy. Twoim zadaniem jest odpowiadanie na pytania użytkownika poprzez samodzielne analizowanie i korelowanie danych z dostarczonych sekcji. Odpowiadaj po polsku, profesjonalnie i zwięźle.");
+      promptBuffer.writeln("Twoje zadania analityczne opierają się na następujących regułach:");
+      promptBuffer.writeln("1.  **Analiza Nieobecności**: Aby stwierdzić nieobecność, musisz znaleźć pracownika, który ma wpis w sekcji 'PRZYPISANE HARMONOGRAMY' na konkretny dzień, ale w sekcji 'SZCZEGÓŁOWE ZDARZENIA' nie ma dla niego ŻADNYCH zdarzeń w tym samym dniu. Jeśli te dwa warunki są spełnione, pracownik był nieobecny.");
+      promptBuffer.writeln("2.  **Analiza Spóźnień**: Aby stwierdzić spóźnienie, musisz znaleźć pracownika, który ma harmonogram na dany dzień. Następnie znajdź jego NAJWCZEŚNIEJSZE zdarzenie typu 'Start Pracy' w tym dniu. Porównaj godzinę tego zdarzenia z 'godziną startu pracy wg harmonogramu'. Jeśli faktyczny start jest późniejszy, pracownik się spóźnił. Podaj o ile.");
+      promptBuffer.writeln("3.  **Obliczanie Czasu Pracy**: Czas pracy dla zadania głównego ('main') to różnica między czasem zdarzenia 'Stop Pracy' a 'Start Pracy' dla tego samego zadania.");
+      promptBuffer.writeln("4.  **Obliczanie Czasu Przerwy**: Czas przerwy ('break') to różnica między jej końcem ('Stop Pracy') a początkiem ('Start Pracy'). Przerwy należy rozpatrywać w kontekście dnia pracy.");
+      promptBuffer.writeln("5.  **Analiza Dostępności /  dyspozycyjności**: Sekcja 'DEKLARACJE DYSPOZYCYJNOŚCI' informuje, kiedy pracownik zadeklarował, że może (status 'Dostępny') lub nie może (status 'Niedostępny') pracować. Jest to jedynie deklaracja pracownika, a nie faktyczny grafik. Gdy użytkownik pyta o dostępność, odpowiedz na podstawie tej sekcji.");
+      promptBuffer.writeln("Zawsze dokładnie analizuj daty i godziny, aby poprawnie połączyć harmonogramy ze zdarzeniami. Wyciągaj wnioski tylko na podstawie dostarczonych danych.");
 
       // Kontekst danych z wpisów pracy
       promptBuffer.writeln("--- DANE DO ANALIZY ---");
@@ -360,6 +521,7 @@ class _AiAnalysisScreenState extends State<AiAnalysisScreen> {
 
       // Krok 3: Wyślij zapytanie do AI
       var model = FirebaseAI.vertexAI();
+      //var model = FirebaseAI.googleAI();
       final gemini = model.generativeModel(model: 'gemini-2.0-flash-001');
       final response = await gemini.generateContent([Content.text(fullPrompt)]);
       if (response.usageMetadata != null) {
@@ -779,8 +941,6 @@ class _AiAnalysisScreenState extends State<AiAnalysisScreen> {
   }
 // #endregion
 }
-
-// --- WIDŻETY POMOCNICZE DO CZATU ---
 
 class UserBubble extends StatelessWidget {
   final String text;

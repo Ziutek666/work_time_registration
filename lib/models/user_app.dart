@@ -1,22 +1,20 @@
-// models/user_app.dart
-import 'package:cloud_firestore/cloud_firestore.dart'; // Import dla Timestamp
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:equatable/equatable.dart';
-// Import modelu AppSettings
-import 'package:work_time_registration/models/wtr_settings.dart'; // Upewnij się, że ta ścieżka jest poprawna
+import 'package:work_time_registration/models/wtr_settings.dart';
 
 class UserApp extends Equatable {
   final String? uid;
   final String? email;
   final String? displayName;
   final String? photoURL;
-  final DateTime? createdAt; // Przechowywane jako DateTime w modelu
-  final DateTime? updatedAt; // Przechowywane jako DateTime w modelu
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
   final WtrSettings? wtrSettings;
-  // Dodatkowe pola, które mogą być w Firestore, a niekoniecznie w UserApp z Firebase Auth
-  final String? displayName_lowercase; // Przykład pola do wyszukiwania
-  final String? email_lowercase;       // Przykład pola do wyszukiwania
+  final String? displayName_lowercase;
+  final String? email_lowercase;
 
-  UserApp({
+  // ZMIANA: Konstruktor jest teraz stały (const), co pozwala na optymalizacje
+  const UserApp({
     this.uid,
     this.email,
     this.displayName,
@@ -24,13 +22,23 @@ class UserApp extends Equatable {
     this.createdAt,
     this.updatedAt,
     this.wtrSettings,
-    this.displayName_lowercase, // Dodano do konstruktora
-    this.email_lowercase,       // Dodano do konstruktora
+    this.displayName_lowercase,
+    this.email_lowercase,
   });
+
+  // DODANO: Getter sprawdzający, czy instancja jest pusta
+  bool get isEmpty => uid == null || uid!.isEmpty;
+
+  // DODANO: Stała, pusta instancja UserApp do użytku w całej aplikacji
+  static const UserApp empty = UserApp(
+    uid: '',
+    email: '',
+    displayName: 'Nieznany',
+  );
 
   @override
   List<Object?> get props => [uid];
-  /// Pomocnicza metoda do parsowania różnych formatów daty
+
   static DateTime? _parseDateTime(dynamic dateTimeValue) {
     if (dateTimeValue == null) {
       return null;
@@ -41,24 +49,19 @@ class UserApp extends Equatable {
     if (dateTimeValue is String) {
       return DateTime.tryParse(dateTimeValue);
     }
-    if (dateTimeValue is int) { // Zakładamy timestamp w milisekundach
+    if (dateTimeValue is int) {
       return DateTime.fromMillisecondsSinceEpoch(dateTimeValue);
     }
-    // Można dodać logowanie, jeśli typ jest nieoczekiwany
-    // print('Nieznany typ daty: ${dateTimeValue.runtimeType}');
     return null;
   }
 
-  /// Fabryczna metoda do tworzenia instancji UserApp z dokumentu Firestore.
   factory UserApp.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
     if (data == null) {
-      // Możesz rzucić wyjątek, zwrócić null lub domyślny obiekt,
-      // w zależności od logiki obsługi błędów.
       throw StateError('Brak danych dla UserApp z dokumentu Firestore: ${doc.id}');
     }
     return UserApp(
-      uid: doc.id, // UID to ID dokumentu
+      uid: doc.id,
       email: data['email'] as String?,
       displayName: data['displayName'] as String?,
       photoURL: data['photoURL'] as String?,
@@ -71,7 +74,6 @@ class UserApp extends Equatable {
       email_lowercase: data['email_lowercase'] as String?,
     );
   }
-
 
   factory UserApp.fromJson(Map<String, dynamic> json) {
     return UserApp(
@@ -89,18 +91,14 @@ class UserApp extends Equatable {
     );
   }
 
-  Map<String, dynamic> toMap() { // Zmieniono nazwę z toJson na toMap dla spójności z Firestore
+  Map<String, dynamic> toMap() {
     return <String, dynamic>{
-      // uid nie jest zwykle zapisywane w mapie, bo jest ID dokumentu,
-      // ale jeśli jest potrzebne z jakiegoś powodu, można je dodać.
-      // 'uid': uid,
       'email': email,
       'displayName': displayName,
       'photoURL': photoURL,
       'createdAt': createdAt == null ? null : Timestamp.fromDate(createdAt!),
       'updatedAt': updatedAt == null ? null : Timestamp.fromDate(updatedAt!),
-      'wtrSettings': wtrSettings?.toJson(), // Zakładając, że WtrSettings ma toJson
-      // Zapisuj pola lowercase, jeśli są zarządzane przez model
+      'wtrSettings': wtrSettings?.toJson(),
       'displayName_lowercase': displayName?.toLowerCase(),
       'email_lowercase': email?.toLowerCase(),
     };
@@ -132,6 +130,6 @@ class UserApp extends Equatable {
 
   @override
   String toString() {
-    return 'UserApp{uid: $uid, email: $email, displayName: $displayName, photoURL: $photoURL, createdAt: $createdAt, updatedAt: $updatedAt, wtrSettings: $wtrSettings, displayName_lowercase: $displayName_lowercase, email_lowercase: $email_lowercase}';
+    return 'UserApp{uid: $uid, email: $email, displayName: $displayName}';
   }
 }

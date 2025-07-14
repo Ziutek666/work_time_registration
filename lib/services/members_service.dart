@@ -21,6 +21,7 @@ class MembersService {
     }
     return _repository.getMembersByOwner(ownerId);
   }
+
   Future<void> setMember(Member member) async {
     try {
       // Wywołuje metodę z repozytorium, która nadpisze dokument
@@ -31,8 +32,7 @@ class MembersService {
       rethrow;
     }
   }
-  /// Sprawdza, czy dany pracownik ma dostęp do konkretnego obszaru w projekcie
-  /// w ramach określonej firmy (ownerId).
+
   Future<bool> hasAccessToArea({
     required String userId,
     required String ownerId, // DODANY, niezbędny parametr
@@ -66,7 +66,6 @@ class MembersService {
     }
   }
 
-  /// Pobiera listę ID obszarów, do których użytkownik ma dostęp w ramach konkretnego projektu i firmy.
   Future<List<String>> getAreaIdsForUserInProject({
     required String userId,
     required String ownerId, // DODANY, niezbędny parametr
@@ -92,7 +91,7 @@ class MembersService {
     // 3. Zwróć listę ID obszarów z tego wpisu.
     return projectAccess.first.areaIds.toList();
   }
-  /// NOWA METODA: Pobiera wszystkie projekty użytkownika ze WSZYSTKICH firm, do których należy.
+
   Future<List<Project>> getAllProjectsForUserAcrossCompanies(String userId) async {
     try {
       // 1. Pobierz wszystkie profile członkostwa użytkownika
@@ -129,6 +128,16 @@ class MembersService {
     }
     await _repository.deleteMembership(userId: userId, ownerId: ownerId);
   }
+  /// NOWA METODA: Pobiera obiekty Member dla podanych użytkowników w kontekście jednego projektu.
+  Future<List<Member>> getMembershipsForProject(String projectId, List<String> userIds) async {
+    print('Pobieram listy użytkowników dla projektu $projectId');
+    print('Lista użytkowników: $userIds');
+    if (projectId.isEmpty || userIds.isEmpty) {
+      return [];
+    }
+    return await _repository.fetchMembershipsForProject(projectId, userIds);
+  }
+
   Future<void> addMember(Member member) async {
     // Ta metoda wywołuje logikę z repozytorium, które rzuci wyjątek,
     // jeśli pracownik o podanym userId jest już przypisany do ownerId.
